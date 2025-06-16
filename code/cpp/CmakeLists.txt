@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.12)
+project(audio_processing)
+
+# Set C++17 standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Include pybind11 from submodule
+set(PYBIND11_PYTHON_VERSION ${Python_VERSION})
+add_subdirectory(pybind11)
+
+# Add the library
+pybind11_add_module(audio_processing
+    bindings.cpp
+    audio_processor.cpp
+    clarity_calculator.cpp
+    definition_calculator.cpp
+    tr_lundeby_calculator.cpp
+    tr_augmentation_calculator.cpp
+    octave_filter_bank.cpp
+)
+
+# Include directories
+target_include_directories(audio_processing PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
