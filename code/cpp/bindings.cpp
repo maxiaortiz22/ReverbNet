@@ -4,8 +4,6 @@
 #include "audio_processor.hpp"
 #include "clarity_calculator.hpp"
 #include "definition_calculator.hpp"
-#include "tr_lundeby_calculator.hpp"
-#include "tr_augmentation_calculator.hpp"
 #include "octave_filter_bank.hpp"
 
 namespace py = pybind11;
@@ -47,52 +45,6 @@ PYBIND11_MODULE(audio_processing, m) {
         .def_static("calculate", [](py::array_t<double> array, double fs) {
             return DefinitionCalculator::calculate(numpy_to_vector(array), fs);
         });
-
-    // TRLundebyCalculator bindings
-    py::class_<TRLundebyCalculator>(m, "TRLundebyCalculator")
-        .def(py::init<>())
-        .def("process", [](TRLundebyCalculator& self, py::array_t<double> input) {
-            std::vector<double> input_vec = numpy_to_vector(input);
-            std::vector<double> output;
-            self.process(input_vec, output);
-            return py::array_t<double>({output.size()}, {sizeof(double)}, output.data());
-        })
-        .def("calculate_t30", [](TRLundebyCalculator& self, py::array_t<double> array, double fs, double max_noise_db) {
-            auto result = self.calculate_t30(numpy_to_vector(array), fs, max_noise_db);
-            double t30 = std::get<0>(result);
-            const std::vector<double>& schroeder_curve = std::get<1>(result);
-            double noise_db = std::get<2>(result);
-            
-            return py::make_tuple(
-                t30,
-                py::array_t<double>({schroeder_curve.size()}, {sizeof(double)}, schroeder_curve.data()),
-                noise_db
-            );
-        });
-
-    // Expose the LundebyResult struct
-    py::class_<TRLundebyCalculator::LundebyResult>(m, "LundebyResult")
-        .def_readonly("cross_point", &TRLundebyCalculator::LundebyResult::cross_point)
-        .def_readonly("C", &TRLundebyCalculator::LundebyResult::C)
-        .def_readonly("noise_db", &TRLundebyCalculator::LundebyResult::noise_db);
-
-    // TRAugmentationCalculator bindings
-    py::class_<TRAugmentationCalculator>(m, "TRAugmentationCalculator")
-        .def_static("augment_tr", [](py::array_t<double> array, double fs, double target_tr) {
-            return TRAugmentationCalculator::augment_tr(numpy_to_vector(array), fs, target_tr);
-        })
-        .def_static("normalize_rir", [](py::array_t<double> array) {
-            return TRAugmentationCalculator::normalize_rir(numpy_to_vector(array));
-        })
-        .def_static("temporal_decompose", [](py::array_t<double> array, double fs, double tau) {
-            return TRAugmentationCalculator::temporal_decompose(numpy_to_vector(array), fs, tau);
-        });
-
-    // Expose the TemporalDecomposition struct
-    py::class_<TRAugmentationCalculator::TemporalDecomposition>(m, "TemporalDecomposition")
-        .def_readonly("delay", &TRAugmentationCalculator::TemporalDecomposition::delay)
-        .def_readonly("early", &TRAugmentationCalculator::TemporalDecomposition::early)
-        .def_readonly("late", &TRAugmentationCalculator::TemporalDecomposition::late);
 
     // OctaveFilterBank bindings
     py::class_<OctaveFilterBank>(m, "OctaveFilterBank")

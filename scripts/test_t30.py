@@ -2,23 +2,18 @@ import sys
 import os
 
 # Añadir la ruta del proyecto a sys.path
-build_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "code", "cpp", "build", "Release")
-sys.path.append(build_path)
 sys.path.append('../code/parameters_calculation')
 
-import audio_processing
 from tr_lundeby import tr_lundeby, NoiseError
 import glob
 from librosa import load
 
 if __name__ == '__main__':
-    files = glob.glob('*.wav')
+    files = glob.glob('../data/RIRs/*.wav')
     max_ruido_dB = -45
     fs = 16000
     order = 4
 
-    # Create an instance of TRLundebyCalculator
-    lundeby_calc = audio_processing.TRLundebyCalculator()
 
     for file in files:
         data, fs = load(file, sr=fs)

@@ -122,7 +122,7 @@ for band_idx, (center_freq, low_freq, high_freq, filter_type) in enumerate(bands
 
 # Generate C++ coefficient initialization code
 def generate_cpp_initialization():
-    with open("cpp_octave_coefficient_initialization.txt", "w") as f:
+    with open("../code/cpp/filter/cpp_octave_coefficient_initialization.txt", "w") as f:
         print("// Octave band filter bank initialization for 16 kHz sample rate", file=f)
         print("// Bands: 125, 250, 500, 1000, 2000, 4000, 8000 Hz", file=f)
         print("// Note: 8000 Hz band is high-pass filter", file=f)

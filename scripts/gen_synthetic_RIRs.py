@@ -31,5 +31,5 @@ if __name__ == '__main__':
         TR = np.round(TR, 2)
 
         RIR, seed = syntheticRIR(TR, fs) #Genero una RIR sintética
-        sf.write(f'sintetica_Seed{seed}_Tr{TR}.wav', RIR, fs) #Guardo el audio
+        sf.write(f'../data/RIRs/sintetica_Seed{seed}_Tr{TR}.wav', RIR, fs) #Guardo el audio
         print(f'Se generó la RIR sintética con seed {seed} y TR {TR}')

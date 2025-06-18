@@ -13,14 +13,15 @@ add_subdirectory(pybind11)
 pybind11_add_module(audio_processing
     bindings.cpp
     audio_processor.cpp
-    clarity_calculator.cpp
-    definition_calculator.cpp
-    tr_lundeby_calculator.cpp
-    tr_augmentation_calculator.cpp
-    octave_filter_bank.cpp
+    clarity/clarity_calculator.cpp
+    definition/definition_calculator.cpp
+    filter/octave_filter_bank.cpp
 )
 
 # Include directories
 target_include_directories(audio_processing PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/clarity
+    ${CMAKE_CURRENT_SOURCE_DIR}/definition
+    ${CMAKE_CURRENT_SOURCE_DIR}/filter
 )
