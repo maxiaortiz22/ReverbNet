@@ -1,4 +1,4 @@
-import colorednoise as cn
+import colored_noise as cn
 import numpy as np
 
 def pink_noise(samples):
