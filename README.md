@@ -23,11 +23,23 @@ conda activate ReverbNet
 Para instalar las dependencias:
 
 ```bash
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 
 Para desactivar el environment:
 
 ```bash
 conda deactivate
+```
+
+
+##Submódulo:
+
+Cuando clones todo el repositorio también vas a necesitar activar el submódulo que clona pybind11 para poder usarlo como librería.
+
+Para activarlo hay que ejecutar este comando en el main root:
+
+```bash
+git submodule update --init --recursive
+
 ```

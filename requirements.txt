@@ -1,4 +1,5 @@
 tensorflow==2.16.1
+numba
 numpy
 scipy
 matplotlib
@@ -7,3 +8,4 @@ seaborn
 scikit-learn
 librosa
 progress
+sounddevice
