@@ -1,8 +1,8 @@
-from parameters_calculation import tr_lundeby, NoiseError
-from parameters_calculation import TAE, pink_noise
-from parameters_calculation import tr_augmentation, TrAugmentationError
-from parameters_calculation import drr_aug, get_DRR
-from cpp import audio_processing
+from .parameters_calculation import tr_lundeby, NoiseError
+from .parameters_calculation import TAE, pink_noise
+from .parameters_calculation import tr_augmentation, TrAugmentationError
+from .parameters_calculation import drr_aug, get_DRR
+from .cpp import audio_processing
 from librosa import load
 import pandas as pd
 from os import listdir

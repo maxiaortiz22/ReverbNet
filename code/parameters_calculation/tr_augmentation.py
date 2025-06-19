@@ -1,7 +1,11 @@
 import numpy as np
 from pandas import Series
 from scipy.optimize import curve_fit
-from scipy.signal import hann
+try:
+    from scipy.signal import hann
+except ImportError:
+    # Para versiones más recientes de SciPy
+    from scipy.signal.windows import hann
 from sklearn.linear_model import LinearRegression
 import glob
 import warnings
