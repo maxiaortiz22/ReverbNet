@@ -11,8 +11,11 @@ from librosa import load
 
 if __name__ == '__main__':
     files = glob.glob('../data/RIRs/*.wav')
+    files = [audio for audio in files if 'sintetica' in audio]
     fs = 16000
-    order = 4
+    audios = 10  # Número de audios a procesar
+    files = files[:audios]  # Limitar a los primeros 'audios' archivos
+    
 
     for file in files:
         data, fs = load(file, sr=fs)

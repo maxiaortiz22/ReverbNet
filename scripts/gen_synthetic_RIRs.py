@@ -24,12 +24,15 @@ if __name__ == '__main__':
     import soundfile as sf
 
     #Valores de TR entre 0.2 a 3 [s] con pasos de 0.1:
-    TRs = np.array([1, 2, 3])
+    TRs = np.arange(0.2, 3.1, 0.1, dtype=float)
     fs = 16000
 
+    COUNT = 1
     for i, TR in enumerate(TRs):
         TR = np.round(TR, 2)
 
-        RIR, seed = syntheticRIR(TR, fs) #Genero una RIR sintética
-        sf.write(f'../data/RIRs/sintetica_Seed{seed}_Tr{TR}.wav', RIR, fs) #Guardo el audio
-        print(f'Se generó la RIR sintética con seed {seed} y TR {TR}')
+        for u in range(1, 101):
+            RIR, seed = syntheticRIR(TR, fs) #Genero una RIR sintética
+            sf.write(f'../data/RIRs/sintetica_Seed{seed}_Tr{TR}.wav', RIR, fs) #Guardo el audio
+            print(f'Se generaron {COUNT} RIRs sintéticas! sintetica_Seed{seed}_Tr{TR}.wav')
+            COUNT+=1

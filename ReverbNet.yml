@@ -2,6 +2,9 @@ name: ReverbNet
 channels:
   - conda-forge
   - defaults
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+  - https://repo.anaconda.com/pkgs/msys2
 dependencies:
   - bzip2=1.0.8=h2466b09_7
   - ca-certificates=2025.4.26=h4c7d964_0
@@ -71,11 +74,13 @@ dependencies:
       - python-dateutil==2.9.0.post0
       - pytz==2025.2
       - requests==2.32.4
+      - resampy==0.4.3
       - rich==14.0.0
       - scikit-learn==1.7.0
       - scipy==1.15.3
       - seaborn==0.13.2
       - six==1.17.0
+      - sounddevice==0.5.2
       - soundfile==0.13.1
       - soxr==0.5.0.post1
       - tensorboard==2.16.2

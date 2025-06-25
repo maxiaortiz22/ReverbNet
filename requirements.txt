@@ -9,3 +9,4 @@ scikit-learn
 librosa
 progress
 sounddevice
+resampy

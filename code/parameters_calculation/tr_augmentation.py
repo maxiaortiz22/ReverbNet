@@ -1,7 +1,11 @@
 import numpy as np
 from pandas import Series
 from scipy.optimize import curve_fit
-from scipy.signal import hann
+try:
+    from scipy.signal import hann
+except ImportError:
+    # Para versiones más recientes de SciPy
+    from scipy.signal.windows import hann
 from sklearn.linear_model import LinearRegression
 import glob
 import warnings
@@ -474,7 +478,7 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bpfilter, use_parallel=True):
         delay, early, rir = temporal_decompose(rir_entrada, fs)
 
         estim_fullband_decay = estimated_fullband_decay(rir, fs)
-        rir_bands = bpfilter.filtered_signals(rir)
+        rir_bands = bpfilter.process(rir)
         
         num_bands = rir_bands.shape[0]
         rir_band_augs = np.empty(rir_bands.shape, dtype=np.float32)

@@ -21,7 +21,7 @@ def compile_library():
 
     #Copy the library to the build folder:
     for file in glob('Release/*.lib'):
-        copy(file, main_dir + '/build')
+        copy(file, main_dir + '/code/cpp')
 
 
 if __name__ == '__main__':

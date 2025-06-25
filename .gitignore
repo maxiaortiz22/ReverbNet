@@ -5,6 +5,8 @@ __pycache__/
 
 # C extensions
 *.so
+*.dll
+*.lib
 
 # Distribution / packaging
 .Python
@@ -195,4 +197,4 @@ cython_debug/
 .cursorindexingignore
 
 # Data
-*.wav
+data/RIRs/*.wav
