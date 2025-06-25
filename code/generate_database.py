@@ -74,7 +74,6 @@ class DataBase:
         self.cutoff = 20  # Frecuencia de corte a 20 Hz
         self.sos_lowpass_filter = butter(self.order, self.cutoff, fs=self.fs, 
                                        btype='lowpass', output='sos')
-        self.bpfilter = audio_processing.OctaveFilterBank(filter_order=self.order)
 
     @lru_cache(maxsize=128)
     def _load_audio_cached(self, file_path: str, duration: Optional[float] = None) -> np.ndarray:
@@ -84,7 +83,7 @@ class DataBase:
 
     def _process_audio_with_rir(self, speech_data: np.ndarray, rir_data: np.ndarray, 
                                speech_name: str, rir_name: str, variant_name: str,
-                               data_type: str) -> Optional[ProcessingResult]:
+                               data_type: str, bpfilter) -> Optional[ProcessingResult]:
         """Procesar un audio con una RIR específica"""
         try:
             # Reverberar el audio
@@ -92,8 +91,8 @@ class DataBase:
             reverbed_audio = reverbed_audio / np.max(np.abs(reverbed_audio))
 
             # Filtrar señales
-            filtered_speech = self.bpfilter.process(reverbed_audio)
-            filtered_rir = self.bpfilter.process(rir_data)
+            filtered_speech = bpfilter.process(reverbed_audio)
+            filtered_rir = bpfilter.process(rir_data)
 
             name = f'{speech_name}|{rir_name}|{variant_name}'
             
@@ -178,6 +177,9 @@ class DataBase:
             print(f"Error cargando RIR {rir_file}: {err}")
             return None
 
+        # Instanciar el filtro localmente (dentro del proceso hijo)
+        bpfilter = audio_processing.OctaveFilterBank(filter_order=self.order)
+
         # Determinar tipo de datos y archivos de voz
         if rir_file in self.rirs_for_training:
             speech_files = self.speech_files_train
@@ -202,7 +204,7 @@ class DataBase:
 
             # Procesar RIR original
             result = self._process_audio_with_rir(
-                speech_data, rir_data, speech_name, rir_name, 'original', data_type
+                speech_data, rir_data, speech_name, rir_name, 'original', data_type, bpfilter
             )
             if result:
                 all_results.append(result)
@@ -210,7 +212,7 @@ class DataBase:
             # Procesar aumentaciones si es necesario
             if self._should_augment_rir(rir_name):
                 augmentation_results = self._process_augmentations(
-                    speech_data, rir_data, speech_name, rir_name, data_type
+                    speech_data, rir_data, speech_name, rir_name, data_type, bpfilter
                 )
                 all_results.extend(augmentation_results)
 
@@ -218,24 +220,24 @@ class DataBase:
         return self._combine_results(all_results, rir_name)
 
     def _process_augmentations(self, speech_data: np.ndarray, rir_data: np.ndarray,
-                             speech_name: str, rir_name: str, data_type: str) -> List[ProcessingResult]:
+                             speech_name: str, rir_name: str, data_type: str, bpfilter) -> List[ProcessingResult]:
         """Procesar todas las aumentaciones de una RIR"""
         results = []
         
         # Seleccionar TR variations para DRR augmentation
-        random.seed(datetime.now())
+        random.seed(datetime.now().timestamp())  # Usar timestamp como semilla válida
         DRR_tr_aug = random.sample(list(self.TR_variations), k=min(5, len(self.TR_variations)))
 
         # Procesar variaciones de TR
         for TR_var in self.TR_variations:
             try:
-                rir_aug = tr_augmentation(rir_data, self.fs, TR_var, self.bpfilter)
+                rir_aug = tr_augmentation(rir_data, self.fs, TR_var, bpfilter)
                 rir_aug = rir_aug / np.max(np.abs(rir_aug))
 
                 # Procesar TR augmentation
                 result = self._process_audio_with_rir(
                     speech_data, rir_aug, speech_name, rir_name, 
-                    f'TR_var_{TR_var}', data_type
+                    f'TR_var_{TR_var}', data_type, bpfilter
                 )
                 if result:
                     results.append(result)
@@ -243,7 +245,7 @@ class DataBase:
                 # Procesar DRR augmentation si corresponde
                 if TR_var in DRR_tr_aug:
                     drr_results = self._process_drr_augmentations(
-                        speech_data, rir_aug, speech_name, rir_name, data_type
+                        speech_data, rir_aug, speech_name, rir_name, data_type, bpfilter
                     )
                     results.extend(drr_results)
 
@@ -253,7 +255,7 @@ class DataBase:
         return results
 
     def _process_drr_augmentations(self, speech_data: np.ndarray, rir_tr_aug: np.ndarray,
-                                 speech_name: str, rir_name: str, data_type: str) -> List[ProcessingResult]:
+                                 speech_name: str, rir_name: str, data_type: str, bpfilter) -> List[ProcessingResult]:
         """Procesar aumentaciones de DRR"""
         results = []
         
@@ -264,7 +266,7 @@ class DataBase:
 
                 result = self._process_audio_with_rir(
                     speech_data, rir_aug, speech_name, rir_name,
-                    f'DRR_var_{DRR_var}', data_type
+                    f'DRR_var_{DRR_var}', data_type, bpfilter
                 )
                 if result:
                     results.append(result)
