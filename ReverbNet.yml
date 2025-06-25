@@ -74,6 +74,7 @@ dependencies:
       - python-dateutil==2.9.0.post0
       - pytz==2025.2
       - requests==2.32.4
+      - resampy==0.4.3
       - rich==14.0.0
       - scikit-learn==1.7.0
       - scipy==1.15.3

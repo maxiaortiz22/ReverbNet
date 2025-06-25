@@ -197,4 +197,4 @@ cython_debug/
 .cursorindexingignore
 
 # Data
-*.wav
+data/RIRs/*.wav
