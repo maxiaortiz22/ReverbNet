@@ -15,6 +15,7 @@ filterwarnings("ignore")
 # Importar las librerías necesarias para el checkpointing
 import tensorflow as tf
 from tensorflow.keras.callbacks import ModelCheckpoint
+from tqdm import tqdm
 
 def parse_args():
     """Función para parsear los argumentos de línea de comando"""
@@ -45,7 +46,13 @@ def main(**kwargs):
         print('Base de datos calculada')
     else:
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            results = executor.map(database.calc_database_multiprocess, config['files_rirs'])
+            results = list(
+                tqdm(
+                    executor.map(database.calc_database_multiprocess, config['files_rirs']),
+                    total=len(config['files_rirs']),
+                    desc="Procesando RIRs"
+                )
+            )
         database.save_database_multiprocess(results)
     
     del database

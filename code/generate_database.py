@@ -292,7 +292,6 @@ class DataBase:
             combined.drrs.extend(result.drrs)
             combined.data_types.extend(result.data_types)
 
-        print(f'RIR procesada: {rir_name}')
         return [combined.names, combined.bands, combined.taes, combined.descriptors,
                 combined.snrs, combined.drrs, combined.data_types]
 

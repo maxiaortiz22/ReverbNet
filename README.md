@@ -94,6 +94,12 @@ Para activarlo hay que ejecutar este comando en el main root:
 git submodule update --init --recursive
 ```
 
+### Para correr los entrenamientos:
+
+```bash
+python run.py --config configs/exp1.py
+```
+
 ## 🎯 Ventajas de esta Configuración
 
 1. **Sin instalación**: No necesitas instalar el paquete en tu sistema
