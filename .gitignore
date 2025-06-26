@@ -199,3 +199,4 @@ cython_debug/
 # Data
 data/RIRs/*.wav
 cache/**/*.pkl
+*.h5

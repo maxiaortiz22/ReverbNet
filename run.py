@@ -77,7 +77,7 @@ def main(**kwargs):
         os.makedirs(checkpoint_dir, exist_ok=True) # Crea el directorio si no existe
 
         # Ruta del archivo del checkpoint. Guardamos los pesos específicos de cada banda.
-        checkpoint_filepath = os.path.join(checkpoint_dir, f'weights_{band}_best.h5')
+        checkpoint_filepath = os.path.join(checkpoint_dir, f'weights_{band}_best.weights.h5')
 
         # Configura el callback ModelCheckpoint
         model_checkpoint_callback = ModelCheckpoint(

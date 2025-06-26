@@ -59,7 +59,8 @@ def reshape_data(tae, descriptors):
 
     for i in range(len(tae)):
         tae_list[i] = np.array(tae[i]).reshape(-1, 1)
-        descriptors_list[i] = np.array(descriptors[i]).reshape(-1, 1)
+        # Solo tomar los primeros 4 descriptores (T30, C50, C80, D50), excluir DRR
+        descriptors_list[i] = np.array(descriptors[i][:4]).reshape(-1, 1)
 
     X = np.array(tae_list)
     y = np.array(descriptors_list)
@@ -72,7 +73,7 @@ def normalize_descriptors(descriptors, y_train, y_test):
 
     descriptors = list(descriptors)
 
-    #Normalización de los parámetros:
+    #Normalización de los parámetros (solo los primeros 4, excluyendo DRR):
     T30 = [descriptors[i][0][0] for i in range(len(descriptors))]
     C50 = [descriptors[i][1][0] for i in range(len(descriptors))]
     C80 = [descriptors[i][2][0] for i in range(len(descriptors))]
@@ -85,6 +86,7 @@ def normalize_descriptors(descriptors, y_train, y_test):
 
     norm = np.array([T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95]).reshape(-1, 1)
 
+    # Normalizar los descriptores (ya filtrados a 4 elementos)
     y_train = np.array([y_train[i]/norm for i in range(len(y_train))])
     y_test = np.array([y_test[i]/norm for i in range(len(y_test))])
 
@@ -134,7 +136,7 @@ def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
         os.makedirs(f'results/exp{exp_num}')
 
     #Guardo los pesos del modelo entrenado:
-    blind_estimation_model.save_weights(f'results/exp{exp_num}/weights_{band}.h5')
+    blind_estimation_model.save_weights(f'results/exp{exp_num}/weights_{band}.weights.h5')
 
     #Guardo en un diccionario los resultados del modelo:
     results_dic = {'loss': history.history['loss'],
