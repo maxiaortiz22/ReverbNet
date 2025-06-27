@@ -16,6 +16,7 @@ filterwarnings("ignore")
 import tensorflow as tf
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tqdm import tqdm
+from tensorflow.keras.callbacks import EarlyStopping
 
 def parse_args():
     """Función para parsear los argumentos de línea de comando"""
@@ -96,6 +97,15 @@ def main(**kwargs):
             verbose=1               # Muestra mensajes cuando se guarda un checkpoint
         )
 
+        # Callback de EarlyStopping
+        early_stopping_callback = EarlyStopping(
+            monitor='val_loss',
+            patience=100,
+            mode='min',
+            restore_best_weights=True,
+            verbose=1
+        )
+
         # --- Cargar pesos si existe un checkpoint para esta banda ---
         if os.path.exists(checkpoint_filepath):
             print(f"Cargando pesos del checkpoint: {checkpoint_filepath} para la banda {band}")
@@ -106,7 +116,13 @@ def main(**kwargs):
                                              validation_split = config['validation_split'], 
                                              batch_size = config['batch_size'], 
                                              epochs = config['epochs'],
-                                             callbacks=[model_checkpoint_callback]) # Agrega el callback aquí
+                                             callbacks=[model_checkpoint_callback, early_stopping_callback]) # Agrega los callbacks aquí
+
+        # --- Cargar los mejores pesos antes de guardar resultados ---
+        if os.path.exists(checkpoint_filepath):
+            print(f"Cargando pesos del mejor checkpoint final: {checkpoint_filepath} para la banda {band}")
+            blind_estimation_model.load_weights(checkpoint_filepath)
+        # -----------------------------------------------------------
 
         predict = prediction(blind_estimation_model, X_test, y_test)
 
