@@ -200,3 +200,4 @@ cython_debug/
 data/RIRs/*.wav
 cache/**/*.pkl
 *.h5
+results/**/*.pickle
