@@ -118,3 +118,46 @@ Si hay problemas con el módulo compilado `audio_processing`, asegúrate de que:
 1. El submódulo pybind11 esté inicializado
 2. El módulo esté compilado correctamente
 3. El archivo `code/cpp/audio_processing.py` exista (wrapper automático)
+
+## Uso
+
+### Parámetros de línea de comando
+
+- `--config`: Archivo de configuración del experimento
+- `--save_batch_size`: Tamaño del lote para guardado incremental (por defecto: 1000)
+
+### Ejemplo de uso
+
+```bash
+# Ejecutar experimento con guardado incremental de 500 muestras por lote
+python run.py --config configs/exp1.py --save_batch_size 500
+```
+
+### Diferencias entre batch_size
+
+**IMPORTANTE**: Hay dos tipos diferentes de `batch_size` en el código:
+
+1. **`save_batch_size`** (parámetro de línea de comando):
+   - Controla cuántas muestras se guardan en cada archivo temporal durante el procesamiento
+   - Ayuda a controlar el uso de memoria RAM
+   - Valores recomendados: 100-1000 (dependiendo de la RAM disponible)
+
+2. **`batch_size`** (en archivos de configuración):
+   - Controla el tamaño del lote para entrenamiento del modelo TensorFlow
+   - Afecta la velocidad y convergencia del entrenamiento
+   - Valores típicos: 32-2048 (dependiendo del modelo y GPU)
+
+### Configuración de memoria
+
+Para evitar errores de memoria (`BrokenProcessPool`):
+
+1. **Reduce `save_batch_size`** si tienes poca RAM:
+   ```bash
+   python run.py --config configs/exp1.py --save_batch_size 5000
+   ```
+
+2. **Ajusta `batch_size` en el archivo de configuración** según tu GPU:
+   ```python
+   # En configs/exp1.py
+   batch_size = 512  # Reducir si hay problemas de memoria GPU
+   ```

@@ -3,7 +3,8 @@ import os
 import argparse
 from code import import_configs_objs
 from code import DataBase
-from code import read_dataset
+# from code import read_dataset # <--- MODIFICACIÓN: Ya no usamos esta función
+import pandas as pd # <--- MODIFICACIÓN: Importamos pandas para leer el HDF5
 from sklearn.model_selection import train_test_split
 from code import model, reshape_data, normalize_descriptors, prediction, descriptors_err, save_exp_data
 import concurrent.futures
@@ -23,48 +24,86 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config", help="Config file with the experiment configurations")
+    parser.add_argument(
+        "--save_batch_size", type=int, default=50000,
+        help="Tamaño del lote para guardado incremental (default: 50000)")
     command_line_args = vars(parser.parse_args())
     return command_line_args
 
 def main(**kwargs):
     """Función principal"""
     config_path = kwargs.pop("config")
-    print(config_path)
+    save_batch_size = kwargs.pop("save_batch_size", 50000)  # Tamaño del lote para guardado incremental
+    
+    print(f"Config: {config_path}")
+    print(f"Tamaño de lote para guardado incremental: {save_batch_size}")
+    
     config = import_configs_objs(config_path)
 
     database = DataBase(config['files_speech_train'], config['files_speech_test'], config['files_rirs'], config['tot_sinteticas'], config['to_augmentate'], 
                         config['rirs_for_training'], config['rirs_for_testing'], config['bands'], config['filter_type'], config['fs'], config['max_ruido_dB'], 
-                        config['order'], config['add_noise'], config['snr'], config['tr_aug'], config['drr_aug'])
+                        config['order'], config['add_noise'], config['snr'], config['tr_aug'], config['drr_aug'], batch_size=save_batch_size)
 
     db_name = database.get_database_name()
 
-    db_exists = False
-    for folder in os.listdir('cache/'):
-        if db_name in folder:
-            db_exists = True
-
-    if db_exists:
+    # <--- MODIFICACIÓN: La comprobación de existencia ahora se hace dentro de la clase DataBase
+    if database._database_exists():
         print('Base de datos calculada')
     else:
+        print(f'Procesando {len(config["files_rirs"])} RIRs con guardado incremental...')
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            results = list(
+            list(
                 tqdm(
                     executor.map(database.calc_database_multiprocess, config['files_rirs']),
                     total=len(config['files_rirs']),
                     desc="Procesando RIRs"
                 )
             )
-        database.save_database_multiprocess(results)
+        
+        print("Combinando lotes temporales...")
+        database._combine_temp_batches() # <--- MODIFICACIÓN: Esta llamada ahora ejecuta la combinación a HDF5
+        print("Procesamiento completado!")
     
     del database
     gc.collect()
-        
+
+    # <--- INICIO DE BLOQUE MODIFICADO
+    # --- Lectura de datos desde el archivo HDF5 ---
+    print("\nCargando base de datos desde el archivo HDF5...")
+    db_path = f'cache/{db_name}/database.h5'
+    try:
+        full_db = pd.read_hdf(db_path, key='data')
+        print(f"Base de datos cargada con {len(full_db)} registros.")
+    except Exception as e:
+        print(f"No se pudo leer el archivo HDF5 en {db_path}. Error: {e}")
+        return
+    # --- FIN DE LECTURA DE DATOS ---
+
     # Entrenamiento:
     for band in config['bands']:
         print(f'\nInicio entrenamiento de la banda {band} Hz:')
+        
+        # --- Filtrado de datos para la banda y tipo de data actual ---
+        # Reemplaza la funcionalidad de la antigua función 'read_dataset'
+        print(f"Filtrando datos para la banda {band} Hz...")
+        
+        db_train_full = full_db[(full_db['banda'] == band) & (full_db['type_data'] == 'train')]
+        db_test_full = full_db[(full_db['banda'] == band) & (full_db['type_data'] == 'test')]
 
-        db_train = read_dataset(band, db_name, config['sample_frac'], config['random_state'], type_data='train')
-        db_test = read_dataset(band, db_name, config['sample_frac'], config['random_state'], type_data='test')
+        # Aplicar muestreo si es necesario
+        if config['sample_frac'] < 1.0:
+            db_train = db_train_full.sample(frac=config['sample_frac'], random_state=config['random_state'])
+            db_test = db_test_full.sample(frac=config['sample_frac'], random_state=config['random_state'])
+        else:
+            db_train = db_train_full
+            db_test = db_test_full
+        
+        print(f"Muestras de entrenamiento: {len(db_train)}, Muestras de prueba: {len(db_test)}")
+
+        if db_train.empty or db_test.empty:
+            print(f"No hay suficientes datos para la banda {band}. Saltando...")
+            continue
+        # <--- FIN DE BLOQUE MODIFICADO
 
         tae_train = list(db_train.tae.to_numpy())
         tae_test = list(db_test.tae.to_numpy())
@@ -80,52 +119,33 @@ def main(**kwargs):
         blind_estimation_model = model(config['filters'], config['kernel_size'], config['activation'], 
                                        config['pool_size'], config['learning_rate'])
         
-        # --- Configuración del Checkpointing ---
         checkpoint_dir = f'results/exp{config["exp_num"]}/checkpoints'
-        os.makedirs(checkpoint_dir, exist_ok=True) # Crea el directorio si no existe
-
-        # Ruta del archivo del checkpoint. Guardamos los pesos específicos de cada banda.
+        os.makedirs(checkpoint_dir, exist_ok=True)
         checkpoint_filepath = os.path.join(checkpoint_dir, f'weights_{band}_best.weights.h5')
 
-        # Configura el callback ModelCheckpoint
         model_checkpoint_callback = ModelCheckpoint(
-            filepath=checkpoint_filepath,
-            save_weights_only=True, # Solo guarda los pesos del modelo
-            monitor='val_loss',     # Monitorea la pérdida de validación
-            mode='min',             # Guarda el modelo cuando la pérdida de validación es mínima
-            save_best_only=True,    # Solo guarda el mejor modelo
-            verbose=1               # Muestra mensajes cuando se guarda un checkpoint
-        )
+            filepath=checkpoint_filepath, save_weights_only=True, monitor='val_loss',
+            mode='min', save_best_only=True, verbose=1)
 
-        # Callback de EarlyStopping
         early_stopping_callback = EarlyStopping(
-            monitor='val_loss',
-            patience=100,
-            mode='min',
-            restore_best_weights=True,
-            verbose=1
-        )
+            monitor='val_loss', patience=100, mode='min',
+            restore_best_weights=True, verbose=1)
 
-        # --- Cargar pesos si existe un checkpoint para esta banda ---
         if os.path.exists(checkpoint_filepath):
             print(f"Cargando pesos del checkpoint: {checkpoint_filepath} para la banda {band}")
             blind_estimation_model.load_weights(checkpoint_filepath)
-        # ----------------------------------------
 
         history = blind_estimation_model.fit(x = X_train, y = y_train, 
                                              validation_split = config['validation_split'], 
-                                             batch_size = config['batch_size'], 
+                                             batch_size = config['batch_size'],  # Batch size para entrenamiento del modelo
                                              epochs = config['epochs'],
-                                             callbacks=[model_checkpoint_callback, early_stopping_callback]) # Agrega los callbacks aquí
+                                             callbacks=[model_checkpoint_callback, early_stopping_callback])
 
-        # --- Cargar los mejores pesos antes de guardar resultados ---
         if os.path.exists(checkpoint_filepath):
             print(f"Cargando pesos del mejor checkpoint final: {checkpoint_filepath} para la banda {band}")
             blind_estimation_model.load_weights(checkpoint_filepath)
-        # -----------------------------------------------------------
 
         predict = prediction(blind_estimation_model, X_test, y_test)
-
         err_t30, err_c50, err_c80, err_d50 = descriptors_err(predict, y_test)
 
         save_exp_data(config['exp_num'], band, blind_estimation_model, history, predict, 
@@ -134,10 +154,13 @@ def main(**kwargs):
                       X_test, y_test)
 
         del db_train, db_test, tae_train, tae_test, descriptors, X_train, X_test, y_train, y_test
-        del descriptors_train, descriptors_test
+        del descriptors_train, descriptors_test, db_train_full, db_test_full
         del T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95
         del blind_estimation_model, history, predict, err_t30, err_c50, err_c80, err_d50
         gc.collect()
+    
+    del full_db
+    gc.collect()
 
 
 if __name__ == "__main__":

@@ -91,5 +91,5 @@ learning_rate = 0.001
 
 #Parámetros de entrenamiento:
 validation_split = 0.1 
-batch_size = 1024
+batch_size = 1024  # Batch size para entrenamiento del modelo (TensorFlow)
 epochs = 500

@@ -11,3 +11,4 @@ progress
 sounddevice
 resampy
 tqdm
+tables
