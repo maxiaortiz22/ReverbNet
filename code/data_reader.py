@@ -21,16 +21,13 @@ def read_dataset(band, db_name, sample_frac=1.0, random_state=None, type_data='t
     if not os.path.exists(db_path):
         raise FileNotFoundError(f"El archivo de base de datos no fue encontrado en: {db_path}")
 
-    # --- MODIFICACIÓN: Se define la consulta para filtrar datos en la lectura ---
-    # Esto es muy eficiente, ya que solo carga en memoria los datos que cumplen la condición.
+    # --- MODIFICACIÓN: Leer todo el DataFrame y filtrar en memoria (formato fixed) ---
     query = f"banda == {band} and type_data == '{type_data}'"
-    
-    print(f"Leyendo datos desde '{db_path}' con la consulta: '{query}'")
+    print(f"Leyendo datos desde '{db_path}' (formato fixed, sin consulta HDF5)")
 
-    # --- MODIFICACIÓN: Usamos pd.read_hdf con el parámetro 'where' ---
-    # Ya no es necesario el bucle, la concatenación ni la barra de progreso.
     try:
-        db = pd.read_hdf(db_path, key='data', where=query)
+        db = pd.read_hdf(db_path, key='data')
+        db = db.query(query)
     except Exception as e:
         print(f"Ocurrió un error al leer el archivo HDF5: {e}")
         return pd.DataFrame() # Devuelve un DataFrame vacío en caso de error

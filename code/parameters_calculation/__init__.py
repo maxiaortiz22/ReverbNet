@@ -12,7 +12,6 @@ __all__ = [
     
     # TR Lundeby
     'tr_lundeby',
-    'NoiseError',
     
     # Pink noise
     'pink_noise',
