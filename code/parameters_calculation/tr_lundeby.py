@@ -1,235 +1,223 @@
-"""
-tr_lundeby.py
--------------
-Estimación del tiempo de reverberación (T30) usando el método de Lundeby
-+ Schroeder, con optimizaciones opcionales vía Numba y varias protecciones
-numéricas:
-
-* Regresión lineal: fórmula cerrada con _fallback_ a `np.linalg.lstsq`
-  cuando el denominador se acerca a cero (--> evita cancelación).
-* Control de índices negativos / fuera de rango.
-* Ventanas mínimas para que nunca haya divisiones por cero.
-* Iteración de Lundeby con límite de 6 pasos y comprobación de convergencia.
-"""
-
-from __future__ import annotations
-from typing import Tuple
 import numpy as np
-import warnings
+import sys
+import math
+from scipy import stats
 
-# --------------------------------------------------------------------- #
-#   Dependencia opcional: NUMBA
-# --------------------------------------------------------------------- #
-USE_NUMBA = False
-try:
-    from numba import njit, prange
-    USE_NUMBA = True
-except ImportError:  # dummy decorators si Numba no está
-    def njit(*args, **kwargs):  # type: ignore
-        def wrap(func):
-            return func
-        return wrap
-    def prange(x):  # type: ignore
-        return range(x)
+class NoiseError(Exception):
+    def __init__(self, *args):
+        if args:
+            self.message = args[0]
+        else:
+            self.message = None
 
-# --------------------------------------------------------------------- #
-#   Constantes
-# --------------------------------------------------------------------- #
-EPS = np.finfo(np.float64).eps        # precisión máquina
-MAX_ITERS = 6                         # iteraciones Lundeby
-WIN_DB   = 10.0                       # ms de ventana para la envolvente
-RNG_DYN  = 20.0                       # rango dinámico p/ regresión (dB)
-
-# --------------------------------------------------------------------- #
-#   Utilidades con y sin NUMBA
-# --------------------------------------------------------------------- #
-@njit(cache=True) if USE_NUMBA else lambda f: f
-def _schroeder_integral(signal_sq: np.ndarray) -> np.ndarray:
-    """Integral de Schroeder acumulada hacia atrás (vector 1-D)."""
-    out = np.empty_like(signal_sq)
-    acc: float = 0.0
-    for i in range(len(signal_sq) - 1, -1, -1):
-        acc += signal_sq[i]
-        out[i] = acc
-    return out
+    def __str__(self):
+        print('calling str')
+        if self.message:
+            return f'NoiseError: {self.message} '
+        else:
+            return f'NoiseError has been raised: {self.message}'
 
 
-def _safe_linear_regression(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
+# raise MyCustomError
+
+#raise MyCustomError('We have a problem')
+
+def leastsquares(x, y):
+    """Given two vectors x and y of equal dimension, calculates
+    the slope and y intercept of the y2 = c + m*x slope, obtained
+    by least squares linear regression
+    Documentation for numpy function used:
+    https://het.as.utexas.edu/HET/Software/Numpy/reference/generated/numpy.linalg.lstsq.html
+    Output arguments
+    c = y-intercept
+    m = slope
+    y2 = least square line"""
+
+    # Rewriting the line equation as y = Ap, where A = [[x 1]]
+    # and p = [[m], [c]]
+    A = np.vstack([x, np.ones(len(x))]).T
+    m, c = np.linalg.lstsq(A, y, rcond=-1)[0]  # Finding coefficients m and c
+    y2 = m*x+c  # Fitted line
+    return m, c, y2
+
+def schroeder(ir, t, C):
+    """ Smooths a curve (ir) using Schroeder Integration method. "t" and "C" are Lundeby's compensation arguments """
+    ir = ir[0:int(t)]
+    y = np.flip((np.cumsum(np.flip(ir)) + C) / (np.sum(ir) + C))
+    return y
+
+def tr_convencional(raw_signal, fs, rt='t30'):  # pylint: disable=too-many-locals
     """
-    Ajuste lineal y = m·x + b en doble precisión.
-
-    • Usa fórmula cerrada (O(n))  
-    • _Fallback_ a `np.linalg.lstsq` cuando el denominador ≈ 0
-      (--> estabilidad numérica)
+    Reverberation time from an impulse response.
+    :param file_name: name of the WAV file containing the impulse response.
+    :param bands: Octave or third bands as NumPy array.
+    :param rt: Reverberation time estimator. It accepts `'t30'`, `'t20'`, `'t10'` and `'edt'`.
+    :returns: Reverberation time :math:`T_{60}`
     """
-    n = x.size
-    if n < 2:
-        return 0.0, float(y.mean() if n else 0.0)
 
-    sum_x  = float(x.sum(dtype=np.float64))
-    sum_y  = float(y.sum(dtype=np.float64))
-    sum_x2 = float(np.dot(x, x))
-    sum_xy = float(np.dot(x, y))
+    rt = rt.lower()
+    if rt == 't30':
+        init = -5.0
+        end = -35.0
+        factor = 2.0
+    elif rt == 't20':
+        init = -5.0
+        end = -25.0
+        factor = 3.0
+    elif rt == 't10':
+        init = -5.0
+        end = -15.0
+        factor = 6.0
+    elif rt == 'edt':
+        init = 0.0
+        end = -10.0
+        factor = 6.0
 
-    denom = n * sum_x2 - sum_x * sum_x
-    if abs(denom) < 1e-12:                       # casi singular
-        A = np.vstack([x, np.ones_like(x)]).T
-        m, b = np.linalg.lstsq(A, y, rcond=None)[0]
-        return float(m), float(b)
+    #Recorto la señal desde el máximo en adelante:
+    in_max = np.where(np.abs(raw_signal) == np.max(np.abs(raw_signal)))[0]  # Windows signal from its maximum onwards.
+    in_max = int(in_max[0])
+    raw_signal = raw_signal[(in_max):]
+    
+    abs_signal = np.abs(raw_signal) / np.max(np.abs(raw_signal))
 
-    m = (n * sum_xy - sum_x * sum_y) / denom
-    b = (sum_y - m * sum_x) / n
-    return float(m), float(b)
+    # Schroeder integration
+    sch = np.cumsum(abs_signal[::-1]**2)[::-1]
+    sch_db = 10.0 * np.log10(sch / np.max(np.abs(sch)) + sys.float_info.epsilon)
 
-# --------------------------------------------------------------------- #
-#   Función principal
-# --------------------------------------------------------------------- #
-def tr_lundeby(
-    rir: np.ndarray,
-    fs: int,
-    max_noise_dB: float = 45.0,
-    tau_ms: float = WIN_DB,
-    dyn_range_dB: float = RNG_DYN
-) -> Tuple[float, int, float]:
-    """
-    Calcula T30 (segundos) mediante Lundeby.
+    # Linear regression
+    sch_init = sch_db[np.abs(sch_db - init).argmin()]
+    sch_end = sch_db[np.abs(sch_db - end).argmin()]
+    init_sample = np.where(sch_db == sch_init)[0][0]
+    end_sample = np.where(sch_db == sch_end)[0][0]
+    x = np.arange(init_sample, end_sample + 1) / fs
+    y = sch_db[init_sample:end_sample + 1]
+    slope, intercept = stats.linregress(x, y)[0:2]
 
-    Parameters
-    ----------
-    rir : np.ndarray
-        Impulso de respuesta (RIR) en mono.
-    fs : int
-        Frecuencia de muestreo (Hz).
-    max_noise_dB : float, optional
-        Diferencia máxima inicial entre señal y ruido (default: 45 dB).
-    tau_ms : float, optional
-        Longitud de la ventana de la envolvente en milisegundos.
-    dyn_range_dB : float, optional
-        Rango dinámico para la regresión (default: 20 dB).
+    # Reverberation time (T30, T20, T10 or EDT)
+    db_regress_init = (init - intercept) / slope
+    db_regress_end = (end - intercept) / slope
+    t60 = factor * (db_regress_end - db_regress_init)
 
-    Returns
-    -------
-    t30 : float
-        Tiempo de reverberación T30 [s].
-    cross_idx : int
-        Índice de muestra donde se trunca la RIR tras Lundeby.
-    noise_floor_dB : float
-        Nivel de piso de ruido estimado [dB].
+    return t60
 
-    Raises
-    ------
-    ValueError
-        Si no hay suficiente rango dinámico o la RIR es demasiado corta.
-    """
-    rir = rir.astype(np.float64, copy=False)
-    if rir.size == 0:
-        raise ValueError("RIR vacía.")
+def lundeby(y_power, Fs, Ts, max_ruido_dB):
+    """Given IR response "y" and samplerate "Fs" function returns upper integration limit of
+    Schroeder's integral. Window length in ms "Ts" indicates window sized of the initial averaging of the input signal,
+    Luneby recommends this value to be in the 10 - 50 ms range."""
 
-    # -------------------------------------------------------------- #
-    # 1. Eliminar el delay (todo antes del pico directo)
-    # -------------------------------------------------------------- #
-    idx_direct = int(np.argmax(np.abs(rir)))
-    rir_delay  = rir[:idx_direct]
-    rir_nodelay = rir[idx_direct:]
+    y_promedio = np.zeros(int(len(y_power) / Fs / Ts))
+    eje_tiempo = np.zeros(int(len(y_power) / Fs / Ts))
 
-    # -------------------------------------------------------------- #
-    # 2. Envolvente cuadrática suavizada
-    # -------------------------------------------------------------- #
-    win_len = max(1, int((tau_ms / 1000.0) * fs))          # ≥ 1 muestra
-    # Convolución equivalente a media móvil mediante `uniform_filter1d`
-    from scipy.ndimage import uniform_filter1d
-    env_sq  = rir_nodelay ** 2
-    env_sm  = uniform_filter1d(env_sq, size=win_len, mode="nearest")
+    t = math.floor(len(y_power) / Fs / Ts)
+    v = math.floor(len(y_power) / t)
 
-    env_dB  = 10.0 * np.log10(env_sm + EPS)
+    for i in range(0, t):
+        y_promedio[i] = np.sum(y_power[i * v:(i + 1) * v]) / v
+        eje_tiempo[i] = math.ceil(v / 2) + (i * v)
 
-    # -------------------------------------------------------------- #
-    # 3. Estimación inicial de piso de ruido (último 10 %)
-    # -------------------------------------------------------------- #
-    tail_len  = max(1, int(0.10 * env_sm.size))
-    noise_lin = env_sm[-tail_len:].mean()
-    noise_floor_dB = 10.0 * np.log10(noise_lin + EPS)
+    # First estimate of the noise level determined from the energy present in the last 10% of input signal
+    ruido_dB = 10 * np.log10(
+        np.sum(y_power[round(0.9 * len(y_power)):len(y_power)]) / (0.1 * len(y_power)) / np.max(y_power)
+                + sys.float_info.epsilon )
+    
+    #ruido_dB2 = 10*np.log10(np.mean(y_power[-int(y_power.size/10):]))
 
-    # -------------------------------------------------------------- #
-    # 4. Primera regresión para pendiente y punto de cruce
-    # -------------------------------------------------------------- #
-    init_val  = env_dB.max()
-    final_val = noise_floor_dB + max_noise_dB
+    #print(f'ruido_dB: {ruido_dB}')
+    #print(f'ruido_dB: {ruido_dB2}')
+    y_promediodB = 10 * np.log10(y_promedio / np.max(y_power) + sys.float_info.epsilon)
 
-    mask = np.logical_and(env_dB < init_val, env_dB > final_val)
-    if mask.sum() < 2:
-        raise ValueError("Rango dinámico insuficiente para la regresión inicial.")
+    if ruido_dB > max_ruido_dB:  # Insufficient S/N ratio to perform Lundeby
+        raise NoiseError(f'Insufficient S/N ratio to perform Lundeby. Need at least {max_ruido_dB} dB')
+        #raise ValueError(f'Insufficient S/N ratio to perform Lundeby. Need at least {max_ruido_dB} dB')
 
-    x_valid = np.where(mask)[0].astype(np.float64)
-    y_valid = env_dB[mask]
+    # Decay slope is estimated from a linear regression between the time interval that contains the maximum of the
+    # input signal (0 dB) and the first interval 10 dB above the initial noise level
+    r = int(np.max(np.argwhere(y_promediodB > ruido_dB + 10)))
+    #print(f'r: {r}')
 
-    m, b = _safe_linear_regression(x_valid, y_valid)
-    cross_idx = int((noise_floor_dB - b) / m) if m != 0 else env_dB.size - 1
-    cross_idx = np.clip(cross_idx, 0, env_dB.size - 1)
+    if r <= 0:
+        raise ValueError('No hay valor de la señal que esté 10 dB por encima del ruido')
 
-    # -------------------------------------------------------------- #
-    # 5. Iteraciones de Lundeby
-    # -------------------------------------------------------------- #
-    for _ in range(MAX_ITERS):
-        # Re-calcular piso de ruido usando DISTANCIA_AL_CRUCE = win_len
-        start_noise = min(cross_idx + win_len, env_sm.size - 1)
-        noise_lin = env_sm[start_noise:].mean()
-        new_noise_dB = 10.0 * np.log10(noise_lin + EPS)
+    m, c, rectacuadmin = leastsquares(eje_tiempo[0:r], y_promediodB[0:r])
+    cruce = (ruido_dB - c) / m
+    #print(f'cruce: {cruce}')
 
-        init_val  = new_noise_dB + max_noise_dB
-        final_val = init_val - dyn_range_dB
-        mask = np.logical_and(env_dB < init_val, env_dB > final_val)
+    # Begin Luneby's iterations
+    error = 1
+    INTMAX = 25
+    veces = 1
+    while error > 0.0001 and veces <= INTMAX:
 
-        if mask.sum() < 2:
-            break
+        # Calculates new time intervals for median, with aprox. p-steps per 10 dB
+        p = 10  # Number of steps every 10 dB
+        delta = np.abs(10 / m)  # Number of samples for the 10 dB decay slope
+        #print(f'delta: {delta}')
+        v = math.floor(delta / p)  # Median calculation window
+        if (cruce - delta) > len(y_power):
+            t = math.floor(len(y_power) / v)
+        else:
+            t = math.floor(len(y_power[0:round(cruce - delta)]) / v)
+        if t < 2:
+            t = 2
 
-        x_valid = np.where(mask)[0].astype(np.float64)
-        y_valid = env_dB[mask]
-        m, b = _safe_linear_regression(x_valid, y_valid)
-        if m == 0:
-            break
+        media = np.zeros(t)
+        eje_tiempo = np.zeros(t)
+        for i in range(0, t):
+            media[i] = np.sum(y_power[i * v:(i + 1) * v]) / len(y_power[i * v:(i + 1) * v])
+            eje_tiempo[i] = math.ceil(v / 2) + (i * v)
+        mediadB = 10 * np.log10(media / np.max(y_power) + sys.float_info.epsilon)
+        m, c, rectacuadmin = leastsquares(eje_tiempo, mediadB)
 
-        new_cross = int((new_noise_dB - b) / m)
-        new_cross = np.clip(new_cross, 0, env_dB.size - 1)
+        # New median of the noise energy calculated, starting from the point of the decay line 10 dB under the cross-point
+        noise = y_power[(round(abs(cruce + delta))):]
+        if len(noise) < round(0.1 * len(y_power)):
+            noise = y_power[round(0.9 * len(y_power)):]
+        rms_dB = 10 * np.log10(sum(noise) / len(noise) / np.max(y_power) + sys.float_info.epsilon)
+        #print(f'rms_dB: {rms_dB}')
 
-        # Convergencia (≤ 1 muestra de diferencia)
-        if abs(new_cross - cross_idx) <= 1:
-            cross_idx = new_cross
-            noise_floor_dB = new_noise_dB
-            break
+        # New cross-point
+        error = np.abs(cruce - (rms_dB - c) / m) / cruce
+        cruce = np.round((rms_dB - c) / m)
+        veces += 1
+    # output
+    if cruce > len(y_power):
+        punto = len(y_power)
+    else:
+        punto = cruce
+    C = np.max(y_power) * 10 ** (c / 10) * np.exp(m / 10 / np.log10(np.exp(1)) * cruce) / (
+                -m / 10 / np.log10(math.exp(1)))
+    
+    return punto, C, ruido_dB
 
-        cross_idx = new_cross
-        noise_floor_dB = new_noise_dB
+def tr_lundeby(y, fs, max_ruido_dB):
+    """T30 parameter given a smoothed energy response "y" and its samplerate "fs" """
+    #Normalizo y obtengo el cuadrado de la señal
+    y = y / np.max(np.abs(y))
+    y **= 2
 
-    # -------------------------------------------------------------- #
-    # 6. Truncate RIR and compute Schroeder
-    # -------------------------------------------------------------- #
-    rir_cut = rir_nodelay[:cross_idx]
-    if rir_cut.size < int(0.003 * fs):  # al menos 3 ms de cola
-        raise ValueError("RIR demasiado corta tras el corte de Lundeby.")
+    #Recorto la señal desde el máximo en adelante:
+    in_max = np.where(abs(y) == np.max(abs(y)))[0]  # Windows signal from its maximum onwards.
+    in_max = int(in_max[0])
+    y = y[in_max:]
 
-    sch = _schroeder_integral(rir_cut ** 2)
-    sch_dB = 10.0 * np.log10(sch / sch[0] + EPS)
+    #Encuentro los cortes de lundeby:
+    t, C, ruido_dB = lundeby(y, fs, 0.05, max_ruido_dB)
 
-    # -------------------------------------------------------------- #
-    # 7. T30: regresión entre −5 dB y −35 dB
-    # -------------------------------------------------------------- #
-    try:
-        idx_start = np.where(sch_dB <= -5.0)[0][0]
-        idx_end   = np.where(sch_dB <= -35.0)[0][0]
-    except IndexError as err:
-        raise ValueError("No se encontró el rango −5 dB a −35 dB.") from err
+    #Saco schroeder:
+    sch = schroeder(y, t, C)
+    sch = 10 * np.log10(sch / np.max(np.abs(sch)) + sys.float_info.epsilon)
 
-    x_reg = np.arange(idx_start, idx_end + 1, dtype=np.float64)
-    y_reg = sch_dB[idx_start:idx_end + 1]
-    m_t30, b_t30 = _safe_linear_regression(x_reg, y_reg)
-    if m_t30 == 0:
-        raise ValueError("Pendiente nula en la regresión T30.")
+    #Cálculo del T30:
+    t = np.arange(0, len(sch) / fs, 1 / fs)
 
-    # T30 = −60 dB / pendiente  (muestras) → segundos
-    t30 = (-60.0 / m_t30) / fs
-
-    # Índice de cruce con delay compensado
-    cross_idx_total = cross_idx + len(rir_delay)
-
-    return float(t30), int(cross_idx_total), float(noise_floor_dB)
+    i_max = np.where(sch == np.max(sch)) # Finds maximum of input vector
+    sch = sch[int(i_max[0][0]):]
+    
+    i_30 = np.where((sch <= np.max(sch) - 5) & (sch > (np.max(sch) - 35))) # Index of values between -5 and -35 dB
+    t_30 = t[i_30]
+    y_t30 = sch[i_30]
+    m_t30, c_t30, f_t30 = leastsquares(t_30, y_t30) #leastsquares function used to find slope intercept and line of each parameter
+                              
+    T30 = -60 / m_t30 #T30 calculation
+    
+    return T30, sch, ruido_dB

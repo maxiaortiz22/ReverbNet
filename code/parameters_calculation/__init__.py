@@ -1,7 +1,6 @@
 from .tae import *
 from .tr_lundeby import *
 from .pink_noise import *
-from .colored_noise import *
 from .drr_augmentation import *
 from .tr_augmentation import *
 
@@ -15,9 +14,6 @@ __all__ = [
     
     # Pink noise
     'pink_noise',
-    
-    # Colored noise
-    'colored_noise',
     
     # DRR augmentation
     'drr_aug',
