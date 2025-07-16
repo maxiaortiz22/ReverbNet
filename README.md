@@ -1,6 +1,21 @@
 # ReverbNet
 Red neuronal creada para estimar parámetros acústicos de una sala a partir de un audio de voz grabado en el lugar.
 
+## 🚀 Nuevas Características
+
+### Early Stopping
+El modelo ahora incluye **early stopping** automático que:
+- Detiene el entrenamiento cuando no hay mejora en `val_loss` durante 100 épocas
+- Guarda automáticamente los mejores pesos del modelo
+- Muestra información sobre la mejor época y el total de épocas entrenadas
+- Incluye esta información en los resultados guardados
+
+**Beneficios:**
+- Evita overfitting al detener el entrenamiento en el momento óptimo
+- Reduce el tiempo de entrenamiento innecesario
+- Mejora la generalización del modelo
+- Guarda automáticamente el modelo con mejor rendimiento
+
 ## 📦 Uso de Importaciones
 
 El proyecto está configurado para usar importaciones relativas. En cualquier script que quieras usar las funciones de ReverbNet, simplemente agrega al inicio:
@@ -51,6 +66,16 @@ python example_usage.py
 ```
 
 Este script probará todas las importaciones y funciones principales del proyecto.
+
+### Prueba de Early Stopping
+
+Para verificar que el early stopping funciona correctamente:
+
+```bash
+python test_early_stopping.py
+```
+
+Este script creará un modelo de prueba y verificará que el early stopping se active correctamente.
 
 ## 🔧 Configuración del Entorno
 

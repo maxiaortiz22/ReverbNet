@@ -3,6 +3,28 @@ from progress.bar import IncrementalBar
 import os
 import pickle
 
+def create_early_stopping_callback(patience=100, monitor='val_loss', restore_best_weights=True):
+    """Función para crear el callback de early stopping
+    
+    Args:
+        patience: Número de épocas sin mejora antes de detener el entrenamiento
+        monitor: Métrica a monitorear ('val_loss' por defecto)
+        restore_best_weights: Si restaurar los mejores pesos al final
+    
+    Returns:
+        EarlyStopping callback configurado
+    """
+    import tensorflow as tf
+    
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor=monitor,
+        patience=patience,
+        restore_best_weights=restore_best_weights,
+        verbose=1
+    )
+    
+    return early_stopping
+
 def model(filters: list = [32, 18, 8, 4], 
            kernel_size: list = [10, 5, 5, 5], 
            activation: list = ['relu','relu','relu','relu'], 
@@ -20,9 +42,6 @@ def model(filters: list = [32, 18, 8, 4],
 
     import tensorflow as tf
     import tensorflow.keras.layers as tfkl
-
-    if len(filters) != 4 or len(kernel_size) != 4 or len(activation) != 4 or len(pool_size) != 3:
-        raise ValueError("filters, kernel_size, and activation must have length 4; pool_size must have length 3")
     
     tf.keras.backend.clear_session()
 
@@ -54,13 +73,12 @@ def model(filters: list = [32, 18, 8, 4],
 def reshape_data(tae, descriptors):
     """Función para cambiar las dimensiones de los datos para que puedan ser interpretados por Tensorflow.
     """
-    tae_list = [[] for _ in range(len(tae))] #Genero una lista de listas vacías
-    descriptors_list = [[] for _ in range(len(descriptors))] #Genero una lista de listas vacías
+    tae_list = [[]] * int(len(tae)) #Genero una lista de listas vacías
+    descriptors_list = [[]] * int(len(descriptors)) #Genero una lista de listas vacías
 
     for i in range(len(tae)):
         tae_list[i] = np.array(tae[i]).reshape(-1, 1)
-        # Solo tomar los primeros 4 descriptores (T30, C50, C80, D50), excluir DRR
-        descriptors_list[i] = np.array(descriptors[i][:4]).reshape(-1, 1)
+        descriptors_list[i] = np.array(descriptors[i]).reshape(-1, 1)
 
     X = np.array(tae_list)
     y = np.array(descriptors_list)
@@ -73,7 +91,7 @@ def normalize_descriptors(descriptors, y_train, y_test):
 
     descriptors = list(descriptors)
 
-    #Normalización de los parámetros (solo los primeros 4, excluyendo DRR):
+    #Normalización de los parámetros:
     T30 = [descriptors[i][0][0] for i in range(len(descriptors))]
     C50 = [descriptors[i][1][0] for i in range(len(descriptors))]
     C80 = [descriptors[i][2][0] for i in range(len(descriptors))]
@@ -86,7 +104,6 @@ def normalize_descriptors(descriptors, y_train, y_test):
 
     norm = np.array([T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95]).reshape(-1, 1)
 
-    # Normalizar los descriptores (ya filtrados a 4 elementos)
     y_train = np.array([y_train[i]/norm for i in range(len(y_train))])
     y_test = np.array([y_test[i]/norm for i in range(len(y_test))])
 
@@ -138,9 +155,15 @@ def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
     #Guardo los pesos del modelo entrenado:
     blind_estimation_model.save_weights(f'results/exp{exp_num}/weights_{band}.weights.h5')
 
+    #Calculo la mejor época:
+    best_epoch = np.argmin(history.history['val_loss']) + 1
+    
     #Guardo en un diccionario los resultados del modelo:
     results_dic = {'loss': history.history['loss'],
                    'val_loss': history.history['val_loss'],
+                   'best_epoch': best_epoch,
+                   'best_val_loss': min(history.history['val_loss']),
+                   'total_epochs': len(history.history['loss']),
                    'prediction': prediction,
                    'err_t30': err_t30,
                    'err_c50': err_c50,

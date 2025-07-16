@@ -12,3 +12,4 @@ sounddevice
 resampy
 tqdm
 tables
+colorednoise==2.1.0
