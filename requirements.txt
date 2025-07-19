@@ -4,6 +4,7 @@ numpy
 scipy
 matplotlib
 pandas
+openpyxl
 seaborn
 scikit-learn
 librosa

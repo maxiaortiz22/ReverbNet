@@ -18,11 +18,22 @@ from .parameters_calculation import (TAE, NoiseError,
 
 class DataBaseGenerator:
     """
-    Clase refactorizada para generar una base de datos de descriptores acústicos
-    a partir de señales de voz y respuestas al impulso (RIRs).
+    Generate an acoustic‑descriptor database from speech signals and room
+    impulse responses (RIRs).
+
+    This class orchestrates the following workflow:
+
+    1. Load and peak‑normalize speech and RIR audio.
+    2. Convolve speech with each (original and optionally augmented) RIR.
+    3. Split signals into frequency bands using a C++ filter bank.
+    4. Compute room/acoustic descriptors (T30, C50, C80, D50, DRR) per band.
+    5. Optionally add pink noise at random SNRs and compute TAE features.
+    6. Accumulate records suitable for DataFrame / pickle storage.
+
+    The instance is intentionally pickle‑friendly to support multiprocessing;
+    heavy C++ filter objects are re‑instantiated in worker processes.
     """
 
-    # Usar __slots__ es bueno para la memoria, ¡bien hecho!
     __slots__ = (
         'speech_files_train', 'speech_files_test', 'rir_files', 'to_augmentate',
         'rirs_for_training', 'rirs_for_testing', 'bands', 'filter_type', 'fs',
@@ -34,8 +45,7 @@ class DataBaseGenerator:
     def __init__(self, speech_files_train, speech_files_test, rir_files, to_augmentate,
                  rirs_for_training, rirs_for_testing, bands, filter_type, fs,
                  max_ruido_dB, order, add_noise, snr, tr_aug_params, drr_aug_params):
-
-        # --- Asignación de parámetros ---
+        # --- Parameter assignment ---
         self.speech_files_train = speech_files_train
         self.speech_files_test = speech_files_test
         self.rir_files = rir_files
@@ -52,53 +62,55 @@ class DataBaseGenerator:
         self.tr_aug_params = tr_aug_params
         self.drr_aug_params = drr_aug_params
         
-        # --- Configuración de rutas (más robusto con pathlib) ---
+        # --- Paths ---
         self.data_path = Path('data')
         self.cache_path = Path('cache')
-        self.cache_path.mkdir(exist_ok=True) # Asegura que el directorio cache exista
+        self.cache_path.mkdir(exist_ok=True)  # Ensure the cache directory exists.
 
-        # --- Nombre de la base de datos ---
+        # --- Database name template (used for cache filenames) ---
         self.db_name = (
-            f'base_de_datos_{self.max_ruido_dB}_noise_{self.add_noise}_'
+            f'data_base_{self.max_ruido_dB}_noise_{self.add_noise}_'
             f'traug_{"_".join(map(str, self.tr_aug_params))}_'
             f'drraug_{"_".join(map(str, self.drr_aug_params))}_'
             f'snr_{self.snr[0]}_{self.snr[-1]}'
         )
 
-        # --- Inicialización de filtros y variaciones (sin cambios, estaba bien) ---
+        # --- Pre‑compute supporting filters / variation ranges ---
         cutoff = 20  # Hz
         self.sos_lowpass_filter = butter(self.order, cutoff, fs=self.fs, btype='lowpass', output='sos')
         self.tr_variations = np.arange(self.tr_aug_params[0], self.tr_aug_params[1], self.tr_aug_params[2])
         self.drr_variations = np.arange(self.drr_aug_params[0], self.drr_aug_params[1], self.drr_aug_params[2])
-        self.bp_filter = None
+        self.bp_filter = None  # Created lazily (cannot be pickled).
 
-    # ----------  protocolo de pickling ----------
+    # ---------- Pickling protocol ----------
     def __getstate__(self):
-        # copia todos los atributos salvo bp_filter
-        return {slot: getattr(self, slot) 
+        """Return a pickleable state dict (exclude non‑serializable filter objects)."""
+        return {slot: getattr(self, slot)
                 for slot in self.__slots__ if slot != 'bp_filter'}
 
     def __setstate__(self, state):
+        """Restore instance state after unpickling; rebuild transient filters lazily."""
         for slot in self.__slots__:
             if slot == 'bp_filter':
                 continue
             setattr(self, slot, state.get(slot, None))
-        # el filtro se recreará perezosamente
+        # Filter will be created on demand in each worker.
         self.bp_filter = None
-    # ---------------------------
+    # --------------------------------------
 
     def _ensure_filter(self):
+        """Create the bandpass filter bank in each worker (C++ object is not pickleable)."""
         if self.bp_filter is None:
             self.bp_filter = audio_processing.OctaveFilterBank(self.order)
     
     def _load_and_normalize_audio(self, file_path: Path, duration: float = 5.0) -> np.ndarray:
-        """Carga un archivo de audio y lo normaliza."""
+        """Load an audio file (Librosa) at the instance sample rate and peak‑normalize."""
         audio_data, _ = load(file_path, sr=self.fs, duration=duration)
         max_val = np.max(np.abs(audio_data))
         return audio_data / max_val if max_val > 0 else audio_data
 
     def _calculate_descriptors(self, rir_band: np.ndarray) -> dict:
-        """Calcula todos los descriptores para una banda de una RIR."""
+        """Compute acoustic descriptors (T30, C50, C80, D50, DRR) for a single‑band RIR."""
         t30, _, _ = tr_lundeby(rir_band, self.fs, self.max_ruido_dB)
         c50 = audio_processing.ClarityCalculator.calculate(50, rir_band, self.fs)
         c80 = audio_processing.ClarityCalculator.calculate(80, rir_band, self.fs)
@@ -107,7 +119,16 @@ class DataBaseGenerator:
         return {'T30': t30, 'C50': c50, 'C80': c80, 'D50': d50, 'DRR': drr}
         
     def _get_tae_with_noise(self, reverbed_audio_band: np.ndarray) -> tuple:
-        """Calcula el TAE, añadiendo ruido si está configurado."""
+        """
+        Compute TAE for a speech*RIR band, optionally adding pink noise at random SNR.
+
+        Returns
+        -------
+        tae : list
+            TAE feature vector.
+        snr_required : float or nan
+            Applied SNR (dB) if noise was added; NaN otherwise.
+        """
         if not self.add_noise:
             tae = TAE(reverbed_audio_band, self.fs, self.sos_lowpass_filter)
             return list(tae), nan
@@ -121,29 +142,41 @@ class DataBaseGenerator:
         noise_data_comp = noise_data * comp
         
         reverbed_noisy_audio = reverbed_audio_band + noise_data_comp
-        # Normalización opcional aquí si se desea, aunque el TAE suele ser robusto a la escala.
+        # Optional normalization could occur here; TAE is generally scale‑robust.
         
         tae = TAE(reverbed_noisy_audio, self.fs, self.sos_lowpass_filter)
         return list(tae), snr_required
 
     def process_single_rir(self, rir_file: str) -> list:
         """
-        Método trabajador diseñado para ser usado con multiprocesamiento.
-        Procesa una única RIR con todos sus archivos de voz y aumentos,
-        y devuelve una lista completa de sus registros.
+        Worker method for multiprocessing.
+
+        Process a *single* RIR across all speech files (train/test split honored),
+        apply configured augmentations (TR / nested DRR), compute descriptors and
+        TAE features for each band, and return a list of record dictionaries.
+
+        Parameters
+        ----------
+        rir_file : str
+            RIR filename (relative to ``data/RIRs``).
+
+        Returns
+        -------
+        list of dict
+            One record per (speech_file, band, augmentation) combination.
         """
-        print(f"Iniciando proceso para RIR: {rir_file}...")
+        print(f"Starting process for RIR: {rir_file}...")
         
-        # Instacion el filtro pasabandas para cada proceso
+        # Instantiate the per‑process bandpass filter bank.
         self._ensure_filter()
 
-        # --- Inicialización de variables para esta RIR ---
+        # --- Per‑RIR initialization ---
         rir_name = Path(rir_file).stem
         rir_data = self._load_and_normalize_audio(self.data_path / 'RIRs' / rir_file)
         records_for_this_rir = []
-        random.seed(int(datetime.now().timestamp())) # Reiniciar la semilla aleatoria para cada proceso
+        random.seed(int(datetime.now().timestamp()))  # Re‑seed RNG per process.
 
-        # --- Determinar si es training o testing ---
+        # --- Determine train/test membership ---
         if rir_file in self.rirs_for_training:
             speech_files = self.speech_files_train
             speech_type = 'train'
@@ -153,22 +186,22 @@ class DataBaseGenerator:
             speech_type = 'test'
             speech_path = self.data_path / 'Speech' / 'test'
 
-        # --- Bucle sobre los archivos de voz correspondientes ---
+        # --- Iterate over all speech files for this split ---
         for speech_file in speech_files:
             speech_name = Path(speech_file).stem
             speech_data = self._load_and_normalize_audio(speech_path / speech_file, duration=5.0)
 
-            # 1. Procesar la RIR original siempre
+            # 1. Always process the *original* RIR.
             records_for_this_rir.extend(self._process_entry(
                 speech_data, rir_data, speech_name, rir_name, speech_type, 'original'
             ))
 
-            # 2. Verificar si se debe aumentar
+            # 2. Check if this RIR is subject to augmentation.
             should_augment = not ('sintetica' in rir_name or not any(rir_name in s for s in self.to_augmentate))
             if not should_augment:
                 continue
             
-            # 3. Aumento de TR
+            # 3. TR augmentation sweep.
             for tr_var in self.tr_variations:
                 try:
                     rir_tr_aug = tr_augmentation(rir_data, self.fs, tr_var, self.bp_filter)
@@ -179,7 +212,7 @@ class DataBaseGenerator:
                         speech_data, rir_tr_aug, speech_name, rir_name, speech_type, aug_tag
                     ))
 
-                    # 4. Aumento de DRR anidado
+                    # 4. Nested DRR augmentation (random subset of TR variants).
                     if tr_var in random.sample(list(self.tr_variations), k=5):
                         for drr_var in self.drr_variations:
                             try:
@@ -195,14 +228,34 @@ class DataBaseGenerator:
                 except (TrAugmentationError, Exception):
                     continue
         
-        print(f"Proceso para RIR: {rir_file} terminado. ✅")
+        print(f"Process for RIR: {rir_file} finished. ✅")
         return records_for_this_rir
     
     def _process_entry(self, speech_data: np.ndarray, rir_data: np.ndarray,
                        speech_name: str, rir_name: str, speech_type: str, aug_tag: str) -> list:
         """
-        Procesa una combinación única de voz y RIR (original o aumentada)
-        y devuelve una lista de registros para el DataFrame.
+        Process a single (speech, RIR[, augmentation]) combination and produce
+        per‑band database records.
+
+        Parameters
+        ----------
+        speech_data : ndarray
+            Speech audio array.
+        rir_data : ndarray
+            RIR audio array (original or augmented).
+        speech_name : str
+            Base name of the speech file (no extension).
+        rir_name : str
+            Base name of the RIR file (no extension).
+        speech_type : {'train', 'test'}
+            Dataset split label.
+        aug_tag : str
+            Augmentation tag (e.g., ``'original'``, ``'TR_var_0.50'``).
+
+        Returns
+        -------
+        list of dict
+            Records suitable for DataFrame construction.
         """
         reverbed_audio = fftconvolve(speech_data, rir_data, mode='same')
         reverbed_audio /= np.max(np.abs(reverbed_audio))
@@ -221,7 +274,7 @@ class DataBaseGenerator:
                 record = {
                     'ReverbedAudio': name,
                     'type_data': speech_type,
-                    'banda': band,
+                    'band': band,
                     'descriptors': [descriptors['T30'], descriptors['C50'], descriptors['C80'], descriptors['D50']],
                     'drr': descriptors['DRR'],
                     'tae': tae,
@@ -229,30 +282,38 @@ class DataBaseGenerator:
                 }
                 entry_records.append(record)
             except (ValueError, NoiseError, Exception) as e:
-                # print(f"Error procesando {name} en banda {band}: {e}")
+                # print(f"Error processing {name} in band {band}: {e}")
                 continue
         return entry_records
 
     def generate_database(self):
         """
-        Genera y guarda la base de datos completa. Este método reemplaza
-        la lógica de multiprocessing para ser ejecutado por un gestor externo.
+        Generate and cache the full database (single‑process version).
+
+        This method mirrors :meth:`process_single_rir` but executes serially
+        under the caller's control (no multiprocessing). Results are cached as
+        a pickle for reuse.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            The generated database, or ``None`` if no records were produced.
         """
-        # --- Comprobación de caché ---
+        # --- Cache check ---
         db_file = self.cache_path / f'{self.db_name}.pkl'
         if db_file.exists():
-            print(f"La base de datos ya existe en: {db_file}")
+            print(f"Database already exists at: {db_file}")
             return pd.read_pickle(db_file)
 
         all_records = []
         
-        # --- Bucle principal sobre las RIRs ---
+        # --- Main loop over RIRs ---
         for rir_file in self.rir_files:
-            print(f"Procesando RIR: {rir_file}...")
+            print(f"Processing RIR: {rir_file}...")
             rir_name = Path(rir_file).stem
             rir_data = self._load_and_normalize_audio(self.data_path / 'RIRs' / rir_file)
 
-            # Determina si es para training o testing para evitar duplicar código
+            # Determine train/test membership (avoid code duplication).
             if rir_file in self.rirs_for_training:
                 speech_files = self.speech_files_train
                 speech_type = 'train'
@@ -262,22 +323,22 @@ class DataBaseGenerator:
                 speech_type = 'test'
                 speech_path = self.data_path / 'Speech' / 'test'
 
-            # Bucle sobre los archivos de voz correspondientes
+            # Loop over all speech files for this split.
             for speech_file in speech_files:
                 speech_name = Path(speech_file).stem
                 speech_data = self._load_and_normalize_audio(speech_path / speech_file, duration=5.0)
 
-                # 1. Procesar la RIR original siempre
+                # 1. Always process the original RIR.
                 all_records.extend(self._process_entry(
                     speech_data, rir_data, speech_name, rir_name, speech_type, 'original'
                 ))
 
-                # 2. Si la RIR es candidata para aumento de datos
+                # 2. If RIR is eligible for augmentation.
                 should_augment = not ('sintetica' in rir_name or not any(rir_name in s for s in self.to_augmentate))
                 if not should_augment:
                     continue
                 
-                # 3. Aumento de TR
+                # 3. TR augmentation sweep.
                 for tr_var in self.tr_variations:
                     try:
                         rir_tr_aug = tr_augmentation(rir_data, self.fs, tr_var, self.bp_filter)
@@ -288,7 +349,7 @@ class DataBaseGenerator:
                             speech_data, rir_tr_aug, speech_name, rir_name, speech_type, aug_tag
                         ))
 
-                        # 4. Aumento de DRR (anidado, como en el original)
+                        # 4. Nested DRR augmentation (as in the multiprocessing version).
                         if tr_var in random.sample(list(self.tr_variations), k=5):
                             for drr_var in self.drr_variations:
                                 try:
@@ -300,19 +361,19 @@ class DataBaseGenerator:
                                         speech_data, rir_drr_aug, speech_name, rir_name, speech_type, aug_tag
                                     ))
                                 except Exception as e:
-                                    # print(f"Error en aumento de DRR {drr_var}: {e}")
+                                    # print(f"DRR augmentation error {drr_var}: {e}")
                                     continue
                     except (TrAugmentationError, Exception) as e:
-                        # print(f"Error en aumento de TR {tr_var}: {e}")
+                        # print(f"TR augmentation error {tr_var}: {e}")
                         continue
         
-        # --- Creación y guardado del DataFrame ---
+        # --- DataFrame creation & save ---
         if not all_records:
-            print("No se generaron registros. La base de datos está vacía.")
+            print("No records were generated. The database is empty.")
             return None
             
         final_db = pd.DataFrame(all_records)
         final_db.to_pickle(db_file)
-        print(f"Base de datos generada y guardada en: {db_file}")
+        print(f"Database generated and saved at: {db_file}")
         
         return final_db

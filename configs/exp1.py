@@ -1,34 +1,40 @@
 """
-Experimento 1: Entreno el modelo con toda la base de datos, sin agregar ruido rosa.
+Experiment 1 configuration: train the model on the *entire* dataset with **no
+pink noise augmentation** (``add_noise = False``).
 
-El criterio de aceptación de ruido para determinar si una RIR es válida o no será de 60 dB.
+RIR inclusion criterion: a room impulse response is considered valid only if
+its noise floor is at least 60 dB below the direct sound
+(``max_ruido_dB = -60``).
 
-Para este caso uso los siguientes parámetros para la red:
+Neural network hyperparameters used in this experiment:
 
-    * filters = [32, 18, 8, 4] 
-    * kernel_size = [10, 5, 5, 5] 
-    * activation = ['relu','relu','relu','relu'] 
+    * filters = [32, 18, 8, 4]
+    * kernel_size = [10, 5, 5, 5]
+    * activation = ['relu','relu','relu','relu']
     * pool_size = [2,2,2]
     * learning_rate = 0.001
+
+This module is imported as a config object; all variables below are read by the
+training pipeline.
 """
 import random
 import os
 
-#Configuración global:
-seed = 2222 #Inicializador del generador de números random
-exp_num = 1 #Número del experimento
+# Global configuration:
+seed = 2222  # Random seed initializer.
+exp_num = 1  # Experiment identifier.
 
-#Splits of RIRs for training and testing:
+# Splits of RIRs for training and testing:
 train = 0.8
 test = 0.2
 
 # Data:
-tot_rirs_from_data = len(os.listdir('data/RIRs')) #Cantidad de RIRs a agarrar de la carpeta data/RIRs
-tot_to_augmentate = 15 #Elijo 15 audios de cada sala para aumentar.
-random.seed(seed) #Seed para hacer reproducible el random de agarrado de RIRs 
+tot_rirs_from_data = len(os.listdir('data/RIRs'))  # Total RIRs found under data/RIRs.
+tot_to_augmentate = 15  # Number of RIRs to augment per room.
+random.seed(seed)  # Seed to make random RIR selection reproducible.
 
-#Parámetros para el cálculo de los descriptores:
-files_rirs = os.listdir('data/RIRs') #Audios de las RIRs
+# Parameters for descriptor calculation:
+files_rirs = os.listdir('data/RIRs')  # RIR audio filenames.
 files_rirs = random.sample(files_rirs, k=tot_rirs_from_data)
 
 great_hall_rirs = [audio for audio in files_rirs if 'great_hall' in audio]
@@ -37,59 +43,59 @@ classroom_rirs = [audio for audio in files_rirs if 'classroom' in audio]
 
 to_augmentate = []
 
+# Select RIRs to augment from each room category.
 for room in [great_hall_rirs, octagon_rirs, classroom_rirs]:
     to_augmentate.extend(random.sample(room, k=tot_to_augmentate))
 
 sinteticas_rirs = [audio for audio in files_rirs if 'sintetica' in audio]
 tot_sinteticas = len(sinteticas_rirs)
 
-
-#Separo las sintéticas:
+# Split synthetic RIRs:
 aux_sinteticas_training = random.sample(sinteticas_rirs, k=int(tot_sinteticas*train))
 aux_sinteticas_testing = [audio for audio in sinteticas_rirs if audio not in aux_sinteticas_training]
 
-#Separo las aumentadas:
+# Split augmented RIRs:
 aux_aumentadas_training = random.sample(to_augmentate, k=int(len(to_augmentate)*train))
 aux_aumentadas_testing = [audio for audio in to_augmentate if audio not in aux_aumentadas_training]
 
-#Separo las reales:
+# Split real (non-synthetic, non-augmented) RIRs:
 already_selected = sinteticas_rirs + to_augmentate
 not_selected = [audio for audio in files_rirs if audio not in already_selected]
 
 aux_reales_training = random.sample(not_selected, k=int(len(not_selected)*train))
 aux_reales_testing = [audio for audio in not_selected if audio not in aux_reales_training]
 
-
+# Final train/test RIR sets:
 rirs_for_training = aux_sinteticas_training + aux_aumentadas_training + aux_reales_training
 rirs_for_testing = aux_sinteticas_testing + aux_aumentadas_testing + aux_reales_testing
 
+# Speech files:
+files_speech_train = os.listdir('data/Speech/train')  # Training speech audio filenames.
+files_speech_test = os.listdir('data/Speech/test')    # Test speech audio filenames.
 
-files_speech_train = os.listdir('data/Speech/train') #Audios de voz entrenamiento
-files_speech_test = os.listdir('data/Speech/test') #Audios de voz prueba
-bands = [125, 250, 500, 1000, 2000, 4000, 8000] #Bandas a analizar
-filter_type = 'octave band' #Tipo de filtro a utilizar: 'octave band' o 'third octave band'
-fs = 16000 #Frecuencia de sampleo de los audios.
-order = 4 #Orden del filtro
-max_ruido_dB = -60 #Criterio de aceptación de ruido para determinar si una RIR es válida o no
-add_noise = False #Booleano para definir si agregar ruido rosa o no a la base de datos.
-snr = [-5, 20] #Valores de SNR que tendrían los audios si se les agrega ruido
-tr_aug = [0.2, 3.1, 0.1] #Aumentar los valores de TR de 0.2 a 3 s con pasos de 0.1 s
-drr_aug = [-6, 19, 1] #Aumentar los valores de DRR de -6 a 18 dB con pasos de 1 dB
+# Analysis bands & filtering parameters:
+bands = [125, 250, 500, 1000, 2000, 4000, 8000]  # Bands to analyze.
+filter_type = 'octave band'  # Filter type: 'octave band' or 'third octave band'.
+fs = 16000  # Audio sampling rate (Hz).
+order = 4  # Filter order.
+max_ruido_dB = -60  # Noise acceptance criterion (dB) to validate RIRs.
+add_noise = False  # Whether to add pink noise to the dataset.
+snr = [-5, 20]  # Target SNR values if noise is added.
+tr_aug = [0.2, 3.1, 0.1]  # TR augmentation sweep: start, stop, step (s).
+drr_aug = [-6, 19, 1]  # DRR augmentation sweep: start, stop, step (dB).
 
-#Parámetros para la lectura de la base de datos:
-sample_frac = 1.0 #Fracción de la data a leer
-random_state = seed #Inicializador del generador de números random
+# Parameters for reading the generated database:
+sample_frac = 1.0  # Fraction of the data to load.
+random_state = seed  # Random seed passed downstream.
 
-# Modelo:
-
-#Parámetros de la red:
-filters = [32, 18, 8, 4] 
-kernel_size = [10, 5, 5, 5] 
-activation = ['relu','relu','relu','relu'] 
+# Model hyperparameters:
+filters = [32, 18, 8, 4]
+kernel_size = [10, 5, 5, 5]
+activation = ['relu','relu','relu','relu']
 pool_size = [2,2,2]
 learning_rate = 0.001
 
-#Parámetros de entrenamiento:
-validation_split = 0.1 
-batch_size = 1024  # Batch size para entrenamiento del modelo (TensorFlow)
+# Training parameters:
+validation_split = 0.1
+batch_size = 1024  # Training batch size (TensorFlow).
 epochs = 500

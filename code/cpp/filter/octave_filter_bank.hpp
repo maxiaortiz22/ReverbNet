@@ -2,66 +2,115 @@
 
 #include <vector>
 
-// Constantes del banco de filtros
-constexpr int NUM_BANDS = 7; // Bandas de octava: 125, 250, 500, 1000, 2000, 4000, 8000 Hz
+/**
+ * @file octave_filter_bank.hpp
+ * @brief Multi‑band octave filter bank (C++ core for Python bindings).
+ *
+ * Provides a bank of cascaded biquad IIR filters implementing octave‑band
+ * analysis at the nominal center frequencies:
+ * 125, 250, 500, 1000, 2000, 4000, and 8000 Hz.
+ *
+ * The bank can be constructed at 2nd‑order or 4th‑order per band (implemented
+ * as one or more biquad sections in cascade). Coefficient initialization is
+ * handled internally; see @c initializeCoefficients().
+ *
+ * Usage (C++):
+ * @code
+ *   OctaveFilterBank bank(4);                 // 4th‑order filters
+ *   std::vector<float> mono;                  // fill with audio samples
+ *   auto bands = bank.process(mono);          // bands[b][n] -> double sample
+ * @endcode
+ *
+ * Usage (Python via pybind11 extension):
+ * @code{.py}
+ *   from audio_processing import OctaveFilterBank
+ *   fb = OctaveFilterBank(filter_order=4)
+ *   y_bands = fb.process(audio_float32_np)    # ndarray [num_bands, num_samples]
+ * @endcode
+ */
+
+// Filter‑bank constants -------------------------------------------------------
+
+/// Number of octave bands: 125, 250, 500, 1000, 2000, 4000, 8000 Hz.
+constexpr int NUM_BANDS = 7; // Octave bands
 
 class OctaveFilterBank {
 public:
     /**
-     * @brief Construye el banco de filtros de octava.
-     * @param filter_order El orden del filtro a utilizar (2 o 4). Por defecto es 4.
+     * @brief Construct the octave filter bank.
+     *
+     * @param filter_order Filter order per band (2 or 4). Default: 4.
      */
     explicit OctaveFilterBank(int filter_order = 4);
 
     /**
-     * @brief Reinicia los estados internos (líneas de retardo) de todos los filtros.
+     * @brief Reset all internal filter states (delay lines) to zero.
      */
     void reset();
 
     /**
-     * @brief Procesa una señal de audio mono a través de todas las bandas de filtro.
-     * @param input Vector con las muestras de audio de entrada.
-     * @return Un vector de vectores, donde cada vector interno contiene la señal
-     * filtrada para una banda. El orden es el de las frecuencias centrales.
+     * @brief Process a mono audio signal through all octave‑band filters.
+     *
+     * @param input Vector of input audio samples (mono, float).
+     * @return Vector of vectors (double) where each inner vector contains the
+     *         band‑filtered signal. Band order follows the nominal center
+     *         frequencies returned by getCenterFrequencies().
      */
     std::vector<std::vector<double>> process(const std::vector<float>& input);
 
     /**
-     * @brief Devuelve el número de bandas del filtro.
-     * @return Número de bandas.
+     * @brief Get the number of bands in the filter bank.
+     * @return Number of octave bands.
      */
     static int getNumBands() { return NUM_BANDS; }
 
     /**
-     * @brief Devuelve las frecuencias centrales de las bandas del filtro.
-     * @return Un vector constante con las frecuencias en Hz.
+     * @brief Get the nominal center frequencies (Hz) for each band.
+     * @return Constant reference to the frequency vector (length NUM_BANDS).
      */
     static const std::vector<double>& getCenterFrequencies() { return CENTER_FREQUENCIES; }
 
 private:
-    // Estructura interna para una sección de filtro de 2do orden (bicuad)
+    /**
+     * @brief Single 2nd‑order (biquad) IIR filter section.
+     *
+     * All sections are stored in direct form with explicit state @c z[]
+     * (two delay elements). @c a[0] is always unity.
+     */
     struct BiquadSection {
-        double b[3]; // Coeficientes del numerador
-        double a[3]; // Coeficientes del denominador (a[0] siempre es 1.0)
-        double z[2]; // Líneas de retardo (estado del filtro)
+        double b[3]; ///< Numerator coefficients (b0, b1, b2).
+        double a[3]; ///< Denominator coefficients (a0==1, a1, a2).
+        double z[2]; ///< Delay‑line state.
     };
 
-    // Estructura interna para una banda de filtro completa (cascada de bicuads)
+    /**
+     * @brief Complete cascaded filter for one octave band.
+     *
+     * Each band owns @c num_sections biquads stored in @c sections, along with
+     * its nominal center frequency (Hz).
+     */
     struct FilterBand {
-        std::vector<BiquadSection> sections;
-        double center_freq;
-        int num_sections;
+        std::vector<BiquadSection> sections; ///< Cascaded biquad sections.
+        double center_freq;                  ///< Nominal center frequency (Hz).
+        int num_sections;                    ///< Number of active sections.
     };
 
-    // Métodos privados
+    // --- Private methods -----------------------------------------------------
+
+    /// Initialize all filter coefficients for the selected @c filter_order_.
     void initializeCoefficients();
+
+    /// Process one sample through a single @ref BiquadSection (in‑place state update).
     double processBiquad(BiquadSection& section, double input);
+
+    /// Process one sample through an entire @ref FilterBand cascade.
     double processFilterBand(FilterBand& band, double input);
 
-    // Miembros de la clase
-    int filter_order_;
-    bool initialized_;
-    std::vector<FilterBand> bands_;
-    
-    static const std::vector<double> CENTER_FREQUENCIES;
+    // --- Data members --------------------------------------------------------
+
+    int filter_order_;              ///< Configured filter order (2 or 4).
+    bool initialized_;              ///< Coefficient/state initialization flag.
+    std::vector<FilterBand> bands_; ///< All octave‑band filters.
+
+    static const std::vector<double> CENTER_FREQUENCIES; ///< Nominal band centers (Hz).
 };
