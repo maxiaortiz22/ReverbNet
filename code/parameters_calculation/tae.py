@@ -1,25 +1,54 @@
+"""
+Temporal Amplitude Envelope (TAE) feature extraction.
+
+Given a mono audio signal, this routine computes its analytic signal via the
+Hilbert transform, takes the magnitude envelope, smooths it with a provided
+low‑pass filter (SOS form), downsamples the result to 40 Hz, peak‑normalizes,
+and returns a 200‑sample TAE vector.
+
+**Assumption:** Upstream code passes ~5 s signals at 16 kHz. After low‑pass
+filtering and resampling to 40 Hz, the resulting envelope should contain
+``5 s * 40 Hz = 200`` samples; this is enforced by an ``assert``.
+
+Parameters
+----------
+data : array_like
+    Input audio signal.
+fs : int or float
+    Sampling rate of ``data`` in Hz.
+sos_lowpass_filter : ndarray
+    Second‑order sections low‑pass filter (as produced by ``scipy.signal``) used
+    to smooth the amplitude envelope before resampling.
+
+Returns
+-------
+ndarray
+    Peak‑normalized TAE vector (length 200 expected).
+"""
+
 import numpy as np
 from librosa import resample
 from scipy.signal import hilbert, sosfilt
 
-#Función principal: TAE por frecuencia
-def TAE(data, fs, sos_lowpass_filter):
-    # Filtro la señal por banda de octava entre 125 y 4k Hz
 
-    #Transformada de Hilbert
+# Main function: TAE per frequency band (fullband signal is pre‑banded upstream).
+def TAE(data, fs, sos_lowpass_filter):
+    # Compute analytic signal (Hilbert transform).
     analytic_signal = hilbert(data)
-    #Obtengo la envolvente
+
+    # Magnitude envelope.
     amplitude_envelope = np.abs(analytic_signal)
 
-    #Obtengo la TAE a partir del resampleo y filtrado de la señal:
-    tae = sosfilt(sos_lowpass_filter, amplitude_envelope) # Filtro pasabajos para la envolvente de la TAE
+    # Low‑pass filter the envelope to obtain the smoothed TAE trajectory.
+    tae = sosfilt(sos_lowpass_filter, amplitude_envelope)
 
-    #Downsampleo la señal:
+    # Downsample the smoothed envelope to 40 Hz.
     tae = resample(tae, orig_sr=fs, target_sr=40)
 
-    tae = tae/np.max(np.abs(tae))
+    # Peak normalize.
+    tae = tae / np.max(np.abs(tae))
 
-    #Si el audio tiene 5 [s] de duración y 16k de frec de sampleo, el tae debería ser de 200!
+    # For 5 s @ 16 kHz input, the TAE should have exactly 200 samples.
     assert(tae.size==200)
 
     return tae
