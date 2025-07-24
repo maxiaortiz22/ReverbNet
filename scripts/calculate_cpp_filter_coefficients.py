@@ -242,7 +242,7 @@ def generate_cpp_initialization():
     octave‑band coefficients.
 
     The output is written to:
-    ``../code/cpp/filter/cpp_octave_coefficient_initialization.txt``.
+    ``../code/cpp/cpp_octave_coefficient_initialization.txt``.
     """
     with open("../code/cpp/filter/cpp_octave_coefficient_initialization.txt", "w") as f:
         print("// Octave band filter bank initialization for 16 kHz sample rate", file=f)
