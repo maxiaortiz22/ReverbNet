@@ -361,7 +361,7 @@ def augmentation(rir, estim_params, estim_fullband_decay, TR60_desired, fs):
     return rir_aug
 
 
-def tr_augmentation(rir_entrada, fs, TR_DESEADO, bpfilter):
+def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
     """
     Full TR augmentation pipeline for a broadband RIR.
 
@@ -369,7 +369,7 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bpfilter):
     -----
     1. Normalize and decompose the RIR into delay/early/late segments.
     2. Estimate a fullband decay constant from the late tail.
-    3. Split the late tail into bands using ``bpfilter``.
+    3. Split the late tail into bands using ``bp_filter``.
     4. Per band:
        a. Estimate Lundeby cross-point.
        b. Fit decay parameters.
@@ -385,7 +385,7 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bpfilter):
         Sampling rate (Hz).
     TR_DESEADO : float
         Desired reverberation time (seconds) to which the decay should be scaled.
-    bpfilter : object
+    bp_filter : object
         Bandpass filter bank object exposing a ``process`` method that returns
         an array shaped ``(n_bands, n_samples)``.
 
@@ -403,7 +403,7 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bpfilter):
         rir_entrada = normalize_rir(rir_entrada)
         delay, early, rir = temporal_decompose(rir_entrada, fs)
         estim_fullband_decay = estimated_fullband_decay(rir, fs)
-        rir_bands = bpfilter.process(rir.astype(np.float32))
+        rir_bands = bp_filter.filter_signals(rir.astype(np.float32))
         rir_band_augs = np.empty(rir_bands.shape)
         for band in range(rir_bands.shape[0]):
             cross_point = Lundeby_method(rir_bands[band, :], fs)
