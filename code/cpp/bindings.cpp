@@ -6,7 +6,6 @@
  * - ::AudioProcessor (static utility methods: rms, snr, rms_comp)
  * - ::ClarityCalculator (clarity metrics C50/C80 via @c calculate )
  * - ::DefinitionCalculator (D50 metric via @c calculate )
- * - ::OctaveFilterBank (multi‑band filter processing)
  *
  * Implementation notes
  * --------------------
