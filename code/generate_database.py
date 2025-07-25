@@ -10,6 +10,7 @@ from librosa import load
 from scipy.signal import butter, fftconvolve
 
 from .cpp import audio_processing
+from filters import BandpassFilter
 from .parameters_calculation import (TAE, NoiseError,
                                     TrAugmentationError,
                                     drr_aug, get_DRR, pink_noise,
@@ -80,28 +81,7 @@ class DataBaseGenerator:
         self.sos_lowpass_filter = butter(self.order, cutoff, fs=self.fs, btype='lowpass', output='sos')
         self.tr_variations = np.arange(self.tr_aug_params[0], self.tr_aug_params[1], self.tr_aug_params[2])
         self.drr_variations = np.arange(self.drr_aug_params[0], self.drr_aug_params[1], self.drr_aug_params[2])
-        self.bp_filter = None  # Created lazily (cannot be pickled).
-
-    # ---------- Pickling protocol ----------
-    def __getstate__(self):
-        """Return a pickleable state dict (exclude non‑serializable filter objects)."""
-        return {slot: getattr(self, slot)
-                for slot in self.__slots__ if slot != 'bp_filter'}
-
-    def __setstate__(self, state):
-        """Restore instance state after unpickling; rebuild transient filters lazily."""
-        for slot in self.__slots__:
-            if slot == 'bp_filter':
-                continue
-            setattr(self, slot, state.get(slot, None))
-        # Filter will be created on demand in each worker.
-        self.bp_filter = None
-    # --------------------------------------
-
-    def _ensure_filter(self):
-        """Create the bandpass filter bank in each worker (C++ object is not pickleable)."""
-        if self.bp_filter is None:
-            self.bp_filter = audio_processing.OctaveFilterBank(self.order)
+        self.bp_filter = BandpassFilter(self.filter_type, self.fs, self.order, self.bands)  
     
     def _load_and_normalize_audio(self, file_path: Path, duration: float = 5.0) -> np.ndarray:
         """Load an audio file (Librosa) at the instance sample rate and peak‑normalize."""
@@ -166,10 +146,7 @@ class DataBaseGenerator:
             One record per (speech_file, band, augmentation) combination.
         """
         print(f"Starting process for RIR: {rir_file}...")
-        
-        # Instantiate the per‑process bandpass filter bank.
-        self._ensure_filter()
-
+    
         # --- Per‑RIR initialization ---
         rir_name = Path(rir_file).stem
         rir_data = self._load_and_normalize_audio(self.data_path / 'RIRs' / rir_file)
@@ -260,8 +237,8 @@ class DataBaseGenerator:
         reverbed_audio = fftconvolve(speech_data, rir_data, mode='same')
         reverbed_audio /= np.max(np.abs(reverbed_audio))
 
-        filtered_speech_bands = self.bp_filter.process(reverbed_audio.astype(np.float32))
-        filtered_rir_bands = self.bp_filter.process(rir_data.astype(np.float32))
+        filtered_speech_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))
+        filtered_rir_bands = self.bp_filter.filter_signals(rir_data.astype(np.float32))
         
         entry_records = []
         name = f'{speech_name}|{rir_name}|{aug_tag}'

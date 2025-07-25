@@ -6,7 +6,6 @@
  * - ::AudioProcessor (static utility methods: rms, snr, rms_comp)
  * - ::ClarityCalculator (clarity metrics C50/C80 via @c calculate )
  * - ::DefinitionCalculator (D50 metric via @c calculate )
- * - ::OctaveFilterBank (multi‑band filter processing)
  *
  * Implementation notes
  * --------------------
@@ -23,7 +22,6 @@
  #include "audio_processor.hpp"
  #include "clarity_calculator.hpp"
  #include "definition_calculator.hpp"
- #include "octave_filter_bank.hpp"
  
  namespace py = pybind11;
  
@@ -76,43 +74,4 @@
              return DefinitionCalculator::calculate(numpy_to_vector(array), fs);
          });
  
-     // ---------------------------------------------------------------------
-     // OctaveFilterBank bindings
-     // ---------------------------------------------------------------------
-     py::class_<OctaveFilterBank>(m, "OctaveFilterBank")
-         .def(py::init<int>(), py::arg("filter_order") = 4)
-         .def("reset", &OctaveFilterBank::reset)
-         .def("process", [](OctaveFilterBank& self, py::array_t<float> input) {
-             // Copy 1‑D float NumPy input into std::vector<float>.
-             std::vector<float> input_vec(input.size());
-             std::memcpy(input_vec.data(), input.data(), input.size() * sizeof(float));
- 
-             // Process through the filter bank -> vector< vector<double> >.
-             auto result = self.process(input_vec);
-             
-             // Determine result dimensions.
-             auto num_bands = result.size();
-             auto num_samples = result[0].size();
-             
-             // Allocate 2‑D NumPy output array (num_bands x num_samples).
-             auto output = py::array_t<double>({num_bands, num_samples});
-             auto output_buf = output.request();
-             auto* output_ptr = static_cast<double*>(output_buf.ptr);
-             
-             // Copy each band into the output buffer row‑by‑row.
-             for (size_t i = 0; i < num_bands; ++i) {
-                 std::memcpy(output_ptr + i * num_samples, result[i].data(), num_samples * sizeof(double));
-             }
-             
-             return output;
-         })
-         .def_static("get_num_bands", &OctaveFilterBank::getNumBands)
-         .def_static("get_center_frequencies", []() {
-             const auto& freqs = OctaveFilterBank::getCenterFrequencies();
-             return py::array_t<double>(
-                 {freqs.size()},
-                 {sizeof(double)},
-                 freqs.data()
-             );
-         });
  }

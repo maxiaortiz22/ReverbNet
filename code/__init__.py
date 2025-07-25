@@ -19,6 +19,7 @@ from .model import (
 # Re-export database generation and reading utilities.
 from .generate_database import DataBaseGenerator
 from .data_reader import read_dataset
+from .filters import BandpassFilter
 
 # Re-export dynamic config loader.
 from .utils import import_configs_objs
@@ -35,4 +36,5 @@ __all__ = [
     'DataBaseGenerator',
     'read_dataset',
     'import_configs_objs',
+    'BandpassFilter',
 ]
