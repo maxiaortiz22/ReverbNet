@@ -174,10 +174,10 @@ If import fails, you'll see an informative error with searched paths.
 Quick sanity checks for the compiled module & calculators:
 
 ```bash
-python test_compilation.py        # import the extension
-python test_filter.py             # run OctaveFilterBank + listen + plot
-python test_definition.py         # batch Definition (D50) calc over sample RIRs
-python test_clarity.py            # batch C50/C80 calc over sample RIRs
+python scripts/test_compilation.py        # import the extension
+python scripts/test_definition.py         # batch Definition (D50) calc over sample RIRs
+python scripts/test_clarity.py            # batch C50/C80 calc over sample RIRs
+python scripts/gen_synthetic_RIRs.py      # generate synthetic RIRs database
 ```
 
 ---
@@ -369,7 +369,6 @@ Bound to Python as the module `audio_processing` (see `code/cpp/`):
 | `AudioProcessor`       | Scalar utilities: RMS, SNR, SNR compensation gain.  |
 | `ClarityCalculator`    | Clarity Cx (C50, C80) metrics from IR energy.       |
 | `DefinitionCalculator` | Definition (D50) metric from IR energy.             |
-| `OctaveFilterBank`     | Cascaded biquad octave‑band analyzer (125‑8000 Hz). |
 
 The filter bank center frequencies and coefficients are currently designed for
 **16 kHz** sampling. Use `calculate_cpp_filter_coefficients.py` to regenerate
@@ -416,7 +415,7 @@ citation entry (BibTeX) will be added here when a paper/preprint is available.
 
 ## License
 
-TODO – add a license file clarifying terms of use.
+This project is licensed under the MIT License. See the LICENSE file for details.
 
 ---
 
