@@ -15,6 +15,8 @@ ReverbNet is a research codebase that:
 
 The project mixes Python (data pipeline, training) and C++ (high‑performance audio primitives exposed via `pybind11`).
 
+For more information, check out my [post on Medium](https://medium.com/@maxiaortiz22/blind-estimation-of-room-acoustic-parameters-from-speech-using-tae-and-cnns-de4a609468ff)!
+
 ---
 
 ## Table of Contents
