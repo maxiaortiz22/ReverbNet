@@ -38,7 +38,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | --- | --- | --- | --- | --- | --- |
 | BUG-01 | `mode='same'` convolution shifts the signal and leaks the RT | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
 | BUG-02 | C50/C80/D50 integrate from sample 0 instead of the direct sound | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
-| BUG-03 | Pink noise added after the filter bank and unfiltered | P0 | 1 | todo | |
+| BUG-03 | Pink noise added after the filter bank and unfiltered | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
 | BUG-04 | Train/val/test leakage (normalization, per-record validation, shared rooms and speakers) | P0 | 1 | todo | |
 | BUG-05 | Silenced exceptions (`except Exception: continue`) and `DRRR_buscado` typo | P1 | 1 | todo | |
 | BUG-06 | Reproducibility: per-iteration `random.sample`, clock-based seed, `os.listdir` order | P1 | 1 | todo | |
@@ -52,6 +52,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | DATA-06 | Larger speech corpus, random crops and VAD | P1 | 4 | todo | |
 | DATA-07 | Real noise types and a clean/noisy mix | P2 | 4 | todo | |
 | DATA-08 | Filter influence on descriptors (zero-phase / time-reversed filtering, 8 kHz band) | P2 | 4 | todo | |
+| DATA-09 | Revisit the SNR range/definition: broadband −5…20 dB leaves 4–8 kHz bands at −24…+6 dB | P1 | 3 | todo | |
 | TRAIN-01 | One multi-band model instead of 7 networks | P1 | 4 | todo | |
 | TRAIN-02 | Higher-capacity architecture with global pooling | P2 | 4 | todo | |
 | TRAIN-03 | Z-score normalization with train stats, Huber/NLL loss with uncertainty | P1 | 4 | todo | |
@@ -60,7 +61,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | TRAIN-06 | GPU training (TF on native Windows has no GPU): WSL2 / PyTorch / Keras 3 | P1 | 2 | todo | |
 | TRAIN-07 | Batched prediction without rounding | P1 | 1 | todo | |
 | TRAIN-08 | Metrics in physical units, % within JND, per RIR type and per room | P1 | 3 | todo | |
-| CODE-01 | Augment and compute descriptors once per RIR (currently repeated ~33×) | P1 | 2 | todo | |
+| CODE-01 | Augment and compute descriptors once per RIR (currently repeated ~30×) | P1 | 2 | todo | |
 | CODE-02 | Efficient per-band storage format (npz/HDF5/parquet) | P1 | 2 | todo | |
 | CODE-03 | Decide the future of the C++ extension | P2 | 2 | todo | |
 | CODE-04 | Installable `reverbnet` package with `pyproject.toml` | P1 | 2 | todo | |

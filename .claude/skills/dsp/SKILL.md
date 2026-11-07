@@ -49,11 +49,17 @@ can learn and that is absent in the field.
 ## Noise and SNR
 
 - Noise is added **broadband, before the filter bank** (BUG-03):
-  `x = y + a·n`, with `a = rms(y) / (rms(n) · 10^(SNR/20))`.
-- Document the SNR definition: today it is the RMS over the whole 5 s window (including
-  speech pauses). Changing it (e.g. RMS over active speech only) is a new experiment.
-- Pink noise: `colorednoise.powerlaw_psd_gaussian(1, n, random_state=rng)`, with an explicit
-  `rng` (never the global one).
+  `x = y + a·n`, with `a = rms(y) / (rms(n) · 10^(SNR/20))`. Use `code/mixing.py::mix_at_snr`
+  and `DataBaseGenerator._build_input_bands`; do not write new mixing code.
+- SNR definition: broadband mean power over the whole 5 s window (speech pauses included),
+  one draw per recording. Changing it (e.g. active speech only, A-weighting) is a new
+  experiment (DATA-09).
+- A broadband SNR does not mean the same SNR per band: with pink noise and speech, 4 kHz sits
+  ~15 dB and 8 kHz ~19 dB below the broadband value on average. The generator stores the
+  resulting per-band SNR in `snr_band`.
+- Pink noise: `pink_noise(n, rng=rng)` (wraps
+  `colorednoise.powerlaw_psd_gaussian(1, n, random_state=rng)`), with an explicit `rng`.
+  `rng=None` falls back to the global state only for legacy code (BUG-06).
 - Verify the achieved SNR after mixing (`10·log10(P_y / P_an)` ≈ target ± 0.01 dB).
 
 ## Envelope (TAE)

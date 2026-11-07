@@ -79,6 +79,20 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: `x = speech*rir + a*noise` in broadband (SNR defined broadband) → filter
   bank → TAE. The per-band SNR becomes a derived quantity.
 - **Acceptance**: the noisy training flow matches inference (real recording → filters → TAE).
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): new
+  `code/mixing.py::mix_at_snr` (broadband mean-power SNR) and
+  `DataBaseGenerator._build_input_bands`, which mixes pink noise with the reverberant speech
+  broadband and then applies the filter bank; the TAE of every band is computed from that
+  single recording. One SNR draw per recording (previously one per band). Records keep `snr`
+  (now the broadband SNR) and gain `snr_band` (resulting per-band SNR, diagnostic).
+  `pink_noise` accepts an optional `rng`. The C++ `AudioProcessor` (rms, rms_comp) is no longer
+  used (see CODE-03). `DATA_PIPELINE_VERSION` → 3. `tests/test_noise_mixing.py`: exact SNR,
+  invariance to noise level, mixture-then-filter equivalence, per-band SNR, a regression test
+  showing the 125 Hz band has no out-of-band noise (< −60 dB above 2 kHz), and one SNR per
+  recording.
+- **Measured impact**: see DATA-09. With a broadband SNR, the per-band SNR spreads widely
+  (pink noise vs. the speech spectrum): +3 to +7.5 dB above the broadband value at 125–500 Hz,
+  −2 dB at 1 kHz, −8 dB at 2 kHz, −14.5 dB at 4 kHz and −19 dB at 8 kHz on average.
 
 ### BUG-04 — Train/validation/test leakage
 - **Files**: `run.py`, `code/model.py` (`normalize_descriptors`), `configs/exp*.py`.
@@ -164,7 +178,7 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   direct sound with a smooth crossfade, targeting a given C50.
 
 ### DATA-06 — Speech corpus
-- **Problem**: 33 training files and 8 test files, and only the first 5 s are used.
+- **Problem**: 30 training files and 8 test files, and only the first 5 s are used.
 - **Proposal**: LibriSpeech / VCTK / EARS with random 5 s crops and VAD to guarantee speech
   activity. Split by speaker.
 
@@ -178,6 +192,29 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   an octave).
 - **Proposal**: for RIR descriptors, time-reversed or zero-phase filtering (check
   Jacobsen's B·T > 16 criterion). Document the 8 kHz band or raise fs.
+
+### DATA-09 — Revisit the SNR range and definition
+- **Files**: `configs/exp*.py` (`snr`), `code/mixing.py`, `code/generate_database.py`.
+- **Problem**: since BUG-03 the SNR is broadband (mean power over the 5 s window). The range
+  `[-5, 20]` dB was chosen when it applied per band. With pink noise, high bands end up far
+  below the broadband value, so most 4–8 kHz TAEs of a noisy database are noise-dominated.
+- **Evidence** (30 training speech files × 8 real RIRs, band SNR − broadband SNR in dB, mean
+  and p5 to p95):
+
+  | Band [Hz] | Offset [dB] | Band SNR for broadband −5…20 dB (mean) |
+  | --- | --- | --- |
+  | 125 | +3.1 (−8.1 to +10.1) | −1.9 to +23.1 |
+  | 250 | +7.5 (+3.0 to +10.6) | +2.5 to +27.5 |
+  | 500 | +7.2 (+3.1 to +10.1) | +2.2 to +27.2 |
+  | 1000 | −2.3 (−8.8 to +2.4) | −7.3 to +17.7 |
+  | 2000 | −8.3 (−14.6 to −0.8) | −13.3 to +11.7 |
+  | 4000 | −14.5 (−20.6 to −8.6) | −19.5 to +5.5 |
+  | 8000 | −19.3 (−29.3 to −11.2) | −24.3 to +0.7 |
+
+- **Proposal**: decide the SNR range from realistic scenarios (e.g. 0–40 dB broadband),
+  consider defining the SNR over active speech only (VAD) or A-weighted, and add real noise
+  spectra (DATA-07). Report metrics per `snr_band` bucket. Decide before generating the noisy
+  variant of baseline v1.
 
 ---
 
@@ -229,7 +266,7 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 ### CODE-01 — Augment and compute descriptors once per RIR
 - **Files**: `code/generate_database.py` (`process_single_rir`).
 - **Problem**: RT augmentation (curve_fit, Lundeby, filtering) and descriptors are
-  recomputed inside the speech loop (~33× per RIR). Since the augmented tail is random, the
+  recomputed inside the speech loop (~30× per RIR, once per training speech file). Since the augmented tail is random, the
   same variant gets different labels depending on the speech file.
 - **Proposal**: generate RIR variants and their descriptors once, then convolve each speech file.
 
@@ -245,6 +282,8 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   and `cp312-win` paths.
 - **Options**: (a) remove it and use numpy; (b) keep it only for a real-time / plugin goal
   (RES-04). Record the decision in `log.md`.
+- **Update** (2026-11-07, BUG-03): `AudioProcessor` (rms, snr, rms_comp) is no longer used by
+  the pipeline; only `ClarityCalculator` and `DefinitionCalculator` remain in use.
 
 ### CODE-04 — Installable `reverbnet` package
 - **Proposal**: rename `code/` → `reverbnet/`, add `pyproject.toml`, `pip install -e .`,

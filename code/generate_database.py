@@ -11,6 +11,7 @@ from scipy.signal import butter
 
 from .convolution import causal_convolve
 from .cpp import audio_processing
+from .mixing import mix_at_snr
 from filters import BandpassFilter
 from .parameters_calculation import (TAE, NoiseError,
                                     TrAugmentationError,
@@ -22,7 +23,8 @@ from .parameters_calculation import (TAE, NoiseError,
 # older code is never reused. Version 0 = thesis pipeline (cache names without suffix).
 #   1: causal convolution instead of mode='same' (BUG-01).
 #   2: C50/C80/D50 integrated from the direct-sound onset (BUG-02).
-DATA_PIPELINE_VERSION = 2
+#   3: noise mixed broadband before the filter bank; one SNR per recording (BUG-03).
+DATA_PIPELINE_VERSION = 3
 
 
 class DataBaseGenerator:
@@ -119,34 +121,51 @@ class DataBaseGenerator:
         drr, _, _ = get_DRR(rir_band, self.fs)
         return {'T30': t30, 'C50': c50, 'C80': c80, 'D50': d50, 'DRR': drr}
         
-    def _get_tae_with_noise(self, reverbed_audio_band: np.ndarray) -> tuple:
+    def _build_input_bands(self, reverbed_audio: np.ndarray, rng=None) -> tuple:
         """
-        Compute TAE for a speech*RIR band, optionally adding pink noise at random SNR.
+        Emulate the recording and split it into bands, as inference does.
+
+        If ``add_noise`` is enabled, pink noise is mixed **broadband** with the reverberant
+        speech at an SNR drawn uniformly from ``self.snr``, and only then is the mixture
+        passed through the filter bank (BUG-03). Previously, unfiltered broadband noise was
+        added to each already band-filtered signal at the same per-band SNR.
+
+        Parameters
+        ----------
+        reverbed_audio : ndarray, shape (n_samples,)
+            Clean reverberant speech (speech * RIR).
+        rng : numpy.random.Generator or None, default=None
+            Random source for the SNR draw and the noise. ``None`` uses NumPy's global
+            state (legacy behavior, see BUG-06).
 
         Returns
         -------
-        tae : list
-            TAE feature vector.
-        snr_required : float or nan
-            Applied SNR (dB) if noise was added; NaN otherwise.
+        input_bands : ndarray, shape (n_bands, n_samples)
+            Band-filtered recording (speech, plus noise if enabled).
+        snr_db : float
+            Broadband SNR in dB, or NaN without noise.
+        band_snr_db : ndarray, shape (n_bands,)
+            Resulting SNR per band in dB (diagnostic), or NaN without noise.
         """
         if not self.add_noise:
-            tae = TAE(reverbed_audio_band, self.fs, self.sos_lowpass_filter)
-            return list(tae), nan
+            input_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))
+            return input_bands, nan, np.full(len(self.bands), nan)
 
-        noise_data = pink_noise(len(reverbed_audio_band))
-        rms_signal = audio_processing.AudioProcessor.rms(reverbed_audio_band)
-        rms_noise = audio_processing.AudioProcessor.rms(noise_data)
-        
-        snr_required = np.random.uniform(self.snr[0], self.snr[-1])
-        comp = audio_processing.AudioProcessor.rms_comp(rms_signal, rms_noise, snr_required)
-        noise_data_comp = noise_data * comp
-        
-        reverbed_noisy_audio = reverbed_audio_band + noise_data_comp
-        # Optional normalization could occur here; TAE is generally scale‑robust.
-        
-        tae = TAE(reverbed_noisy_audio, self.fs, self.sos_lowpass_filter)
-        return list(tae), snr_required
+        if rng is None:
+            snr_db = float(np.random.uniform(self.snr[0], self.snr[-1]))
+        else:
+            snr_db = float(rng.uniform(self.snr[0], self.snr[-1]))
+        noise = pink_noise(len(reverbed_audio), rng=rng)
+        mixture, gain = mix_at_snr(reverbed_audio, noise, snr_db)
+
+        input_bands = self.bp_filter.filter_signals(mixture.astype(np.float32))
+        # Diagnostic per-band SNR: the filter bank is linear, so the speech part of each
+        # band is the band-filtered mixture minus the band-filtered noise.
+        noise_bands = self.bp_filter.filter_signals((gain * noise).astype(np.float32))
+        speech_power = np.mean((input_bands - noise_bands) ** 2, axis=1)
+        noise_power = np.mean(noise_bands**2, axis=1)
+        band_snr_db = 10 * np.log10(speech_power / noise_power)
+        return input_bands, snr_db, band_snr_db
 
     def process_single_rir(self, rir_file: str) -> list:
         """
@@ -260,7 +279,8 @@ class DataBaseGenerator:
         reverbed_audio = causal_convolve(speech_data, rir_data)
         reverbed_audio /= np.max(np.abs(reverbed_audio))
 
-        filtered_speech_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))
+        # One recording per entry: broadband noise (if enabled), then the filter bank (BUG-03).
+        input_bands, snr_db, band_snr_db = self._build_input_bands(reverbed_audio)
         filtered_rir_bands = self.bp_filter.filter_signals(rir_data.astype(np.float32))
         # Energy ratios are integrated from the broadband direct-sound onset, shared by
         # all bands (BUG-02). The RIR is trimmed before filtering.
@@ -277,7 +297,7 @@ class DataBaseGenerator:
                 descriptors = self._calculate_descriptors(
                     filtered_rir_bands[i], filtered_rir_bands_from_onset[i]
                 )
-                tae, snr = self._get_tae_with_noise(filtered_speech_bands[i])
+                tae = TAE(input_bands[i], self.fs, self.sos_lowpass_filter)
 
                 record = {
                     'ReverbedAudio': name,
@@ -285,8 +305,9 @@ class DataBaseGenerator:
                     'band': band,
                     'descriptors': [descriptors['T30'], descriptors['C50'], descriptors['C80'], descriptors['D50']],
                     'drr': descriptors['DRR'],
-                    'tae': tae,
-                    'snr': snr
+                    'tae': list(tae),
+                    'snr': snr_db,                    # broadband SNR of the recording (dB)
+                    'snr_band': float(band_snr_db[i]),  # resulting SNR in this band (dB)
                 }
                 entry_records.append(record)
             except (ValueError, NoiseError, Exception) as e:

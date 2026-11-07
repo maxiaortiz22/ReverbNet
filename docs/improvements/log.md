@@ -53,3 +53,19 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   Synthetic RIRs are unaffected (onset at 0). Details in the BUG-02 entry of the backlog.
 - Test suite: 26 passing tests. In sandboxed sessions the default pytest temp dir may not be
   writable; use `--basetemp=<writable dir>`.
+
+## 2026-11-07 — BUG-03: broadband noise before the filter bank
+
+- Added `code/mixing.py::mix_at_snr` and `DataBaseGenerator._build_input_bands`: noise is mixed
+  broadband with the reverberant speech and the mixture goes through the filter bank, exactly
+  like a real recording at inference time. `DATA_PIPELINE_VERSION` → 3.
+- **Decisions**:
+  - The SNR is now **broadband** (mean power over the 5 s window) and drawn **once per
+    recording**; records store it in `snr` and the resulting per-band SNR in `snr_band`.
+  - The SNR range was left at `[-5, 20]` dB for now. Measured on real speech and RIRs, a
+    broadband SNR leaves the 4 and 8 kHz bands ~15–19 dB lower on average, so the range must be
+    revisited before generating the noisy variant of baseline v1 → new item **DATA-09**.
+  - The RNG is still NumPy's global state (`rng=None`); seeding is BUG-06.
+- The C++ `AudioProcessor` is no longer used (noted in CODE-03).
+- Corrected the speech counts in the tracking docs: 30 training files (not 33) and 8 test files.
+- Test suite: 42 passing tests.

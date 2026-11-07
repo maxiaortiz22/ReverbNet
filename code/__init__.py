@@ -18,6 +18,7 @@ from .model import (
 
 # Re-export signal helpers shared by data generation and inference.
 from .convolution import causal_convolve
+from .mixing import mix_at_snr
 
 # Re-export database generation and reading utilities.
 from .generate_database import DataBaseGenerator
@@ -37,6 +38,7 @@ __all__ = [
     'descriptors_err',
     'save_exp_data',
     'causal_convolve',
+    'mix_at_snr',
     'DataBaseGenerator',
     'read_dataset',
     'import_configs_objs',
