@@ -1,0 +1,88 @@
+---
+name: python-code
+description: Conventions for writing and modifying Python code in ReverbNet (the code/ package, future reverbnet/, run.py, scripts/, configs/). Use whenever a .py file is created or edited - style, type hints, docstrings, error handling, randomness, logging, multiprocessing on Windows, imports and tests.
+---
+
+# Python code in ReverbNet
+
+## Style
+
+- Python 3.12. Code, names, docstrings and comments in **English**.
+- Type hints on every public function (`np.ndarray`, `Sequence[float]`, `Path`, `float | None`).
+- **NumPy-style** docstrings (like the existing code): `Parameters`, `Returns`, `Raises`,
+  `Notes`. State units (Hz, s, dB, %) and array shapes (`shape (n_bands, n_samples)`).
+- Formatting compatible with `ruff format` (line length 100) and `ruff check`. If the
+  configuration is added, it goes into `pyproject.toml` (CODE-04).
+- `pathlib.Path` for paths; never concatenate strings with `/`.
+- f-strings; UPPER_CASE constants at the top of the module.
+- Small, pure functions for DSP and acoustics: arrays + parameters in, arrays out. No global
+  state, no I/O inside.
+- Legacy code with Spanish names (`señal_1`, `ruido_dB`, `DRR_buscado`): do not rename outside
+  a backlog item; **new** code is in English.
+
+## Numerics
+
+- Vectorize with numpy; avoid Python loops over samples.
+- `float64` to compute descriptors and energies; `float32` to store features and for the model.
+- Always guard `log10`: `10 * np.log10(x + EPS)` or `np.maximum(x, EPS)`, with
+  `EPS = np.finfo(float).eps` defined once.
+- Do not store numeric data as Python lists inside DataFrames (`object` columns): use 2D
+  arrays (CODE-02).
+
+## Errors
+
+- `except Exception: continue` / `except: pass` are **forbidden**. Catch specific exceptions
+  (`NoiseError`, `TrAugmentationError`, `ValueError`) and **log** the discard with its reason
+  (BUG-05).
+- Validate inputs at the top of the function and raise `ValueError` with a clear message.
+- Do not use `assert` to validate data at runtime (it is disabled with `-O`); use
+  `if ...: raise ValueError(...)`.
+- Functions that can fail either return a value or raise; never return `None` as a silent
+  error signal.
+
+## Randomness and reproducibility
+
+- No global `np.random.*` and no `random.seed(time)`. Use `rng = np.random.default_rng(seed)`
+  and pass it explicitly as an `rng: np.random.Generator` parameter.
+- Derived, deterministic seeds for workers, e.g.
+  `np.random.default_rng([base_seed, zlib.crc32(rir_name.encode())])`.
+- File listings are always sorted: `sorted(path.glob("*.wav"))` (BUG-06).
+
+## Logging and output
+
+- New code uses `logging.getLogger(__name__)`, not `print`. Scripts configure logging in `main()`.
+- Progress bars: `tqdm` (preferred) or `progress` (legacy).
+- Windows: the console is cp1252. If a script prints non-ASCII characters (ρ, ±, emojis), call
+  `sys.stdout.reconfigure(encoding="utf-8")` or avoid them.
+
+## Imports and structure
+
+- Current package: `code/` (shadows the stdlib `code` module, BUG-08; renamed to `reverbnet/`
+  in CODE-04). Until then, do not add more `sys.path.append(...)`: use relative imports inside
+  the package (`from .filters import BandpassFilter`).
+- TensorFlow is imported lazily inside functions (existing pattern in `model.py`) so that data
+  generation does not load TF.
+- All reusable logic lives in the package; notebooks and scripts import it (CODE-09).
+
+## Multiprocessing (Windows = spawn)
+
+- Entry points guarded with `if __name__ == "__main__":`.
+- Everything sent to workers must be picklable (no lambdas, no non-picklable C++ objects);
+  rebuild heavy objects inside the worker.
+- Return compact results (arrays) rather than huge lists of dicts.
+
+## Tests
+
+- `tests/` with `pytest` (CODE-07). Every new or fixed DSP/acoustics function gets a test with
+  a known-result case (see the `dsp` and `room-acoustics` skills).
+- Fast tests (< 1 s each) that do not depend on `data/` or `cache/`: generate synthetic signals
+  inside the test.
+- Run with `python -m pytest -q` from the repo root.
+
+## Checklist before calling it done
+
+- [ ] Type hints and docstrings with units and shapes.
+- [ ] No silenced exceptions, no global RNG.
+- [ ] Same processing at training and inference time (shared function).
+- [ ] New or updated tests, passing.
+- [ ] Tracking updated (`improvement-tracking` skill).
