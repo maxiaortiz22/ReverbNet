@@ -90,6 +90,9 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 - **Language**: everything in the repository (code, docstrings, comments, docs, skills,
   tracking, commit messages) is written in **English**. Conversation with the maintainer
   may be in Spanish.
+- **Reproducibility**: the config's `seed` is the only seed of the project. Every random
+  process derives its own stream from it (`RNG_STREAMS` in `code/generate_database.py`); see
+  the `python-code` skill.
 - Audio conventions: `fs = 16000`, mono, 5 s windows, bands
   `[125, 250, 500, 1000, 2000, 4000, 8000]`.
 - **Branches**: one per item or coherent group: `fix/BUG-01-...`, `feat/...`, `refactor/...`,

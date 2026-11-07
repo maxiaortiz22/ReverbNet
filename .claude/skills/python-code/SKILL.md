@@ -42,10 +42,17 @@ description: Conventions for writing and modifying Python code in ReverbNet (the
 
 ## Randomness and reproducibility
 
-- No global `np.random.*` and no `random.seed(time)`. Use `rng = np.random.default_rng(seed)`
-  and pass it explicitly as an `rng: np.random.Generator` parameter.
-- Derived, deterministic seeds for workers, e.g.
-  `np.random.default_rng([base_seed, zlib.crc32(rir_name.encode())])`.
+- **One project-wide seed**: the config's `seed` drives every random process. Never add a
+  second seed key to the configs.
+- No global `np.random.*` and no `random.seed(time)`. Pass an explicit
+  `rng: np.random.Generator` parameter.
+- Each random process has its own stream id in `RNG_STREAMS` (`code/generate_database.py`).
+  Derive per-item generators from the seed, the stream id and the item identity:
+  `np.random.default_rng([seed, RNG_STREAMS['<process>'], zlib.crc32(item_name.encode())])`.
+  This keeps draws independent of processing order, multiprocessing and the rest of the file
+  list. Use `zlib.crc32`, never `hash()` (salted per process).
+- Add a new stream id for a new random process; never reuse or renumber an existing one, and
+  never reorder the draws inside a process (both change previously reproducible databases).
 - File listings are always sorted: `sorted(path.glob("*.wav"))` (BUG-06).
 
 ## Logging and output

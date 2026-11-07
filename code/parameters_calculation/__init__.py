@@ -28,6 +28,7 @@ __all__ = [
     
     # Pink noise
     'pink_noise',
+    'colored_noise',
     
     # DRR augmentation
     'drr_aug',

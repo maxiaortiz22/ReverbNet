@@ -131,6 +131,12 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: `sorted(os.listdir(...))`; `np.random.default_rng(seed)` derived from
   `(seed, rir_name)` and passed explicitly; pick the DRR subset once.
 - **Acceptance**: generating the same database twice yields identical results.
+- **Progress** (2026-11-07, DATA-09): the noise is now fully reproducible from the config's
+  `seed` via `RNG_STREAMS` in `code/generate_database.py` (one stream id per random process,
+  per-recording generators). Pattern to follow for the remaining items: add a stream id for
+  augmentation (TR subset, DRR subset, `curva_noiseless` tail) and derive generators from
+  `(seed, stream, crc32(name))`. Still pending: `random.sample` per iteration, clock-based
+  seed, `os.listdir` order in configs, global `np.random` in `tr_augmentation`.
 
 ### BUG-07 — Direct-sound detection with `argmax(rir)` without `abs`
 - **Files**: `drr_augmentation.py` (`get_DRR`, `drr_aug`), `tr_augmentation.py`
@@ -191,6 +197,8 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 ### DATA-07 — Real noise and a clean/noisy mix
 - **Proposal**: besides pink noise, real noise (DEMAND, MUSAN: babble, HVAC, traffic).
   Train on a mix of clean and noisy examples (future work in the thesis).
+- **Progress** (2026-11-07, DATA-09): random noise color (β range) and a configurable
+  noise-free fraction (`clean_fraction`) are implemented. Real noise recordings are still pending.
 
 ### DATA-08 — Filter influence on descriptors
 - **Problem**: causal Butterworth filters (order 4 → order-8 bandpass) bias the decay at
@@ -260,6 +268,28 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   - (b) Randomize the noise color per recording (β ∈ [1, 2], pink to brown) and use a broadband
     range of `[0, 40]` dB: every band spans from hard (< 5 dB) to clean (> 30 dB) cases.
   - (c) Option (b) plus a fraction of noise-free recordings (thesis future work, DATA-07).
+- **Decision** (2026-11-07, maintainer): option (c), with reproducible noise driven by the
+  project-wide `seed` already present in the configs.
+- **Resolution** (branch `fix/BUG-01-causal-convolution`):
+  - `colored_noise(samples, beta, rng)` in `code/parameters_calculation/pink_noise.py`
+    (`pink_noise` is now a wrapper with β = 1).
+  - New generator parameters (read by `run.py` with legacy defaults): `noise_beta`
+    (default `[1.0, 1.0]`), `clean_fraction` (default `0.0`) and `seed` (the config's `seed`).
+    The `snr` range is unchanged in code; the values recommended for the noisy variant of
+    baseline v1 are `snr = [0, 40]`, `noise_beta = [1.0, 2.0]`, `clean_fraction = 0.2`, to be
+    set in the v1 configs (exp1–4 configs are left untouched as v0).
+  - Per-recording RNG: `default_rng([seed, RNG_STREAMS['noise'], crc32(recording_name)])`.
+    Draw order per recording: clean/noisy decision → β → SNR → noise realization. The same
+    seed and recording always give the same noisy recording, independent of processing order,
+    multiprocessing and the rest of the file list.
+  - Records gain `noise_beta`; `snr`, `snr_band` and `noise_beta` are NaN for clean recordings.
+  - The cache name encodes `beta`, `clean` and `seed`; `DATA_PIPELINE_VERSION` → 4.
+  - Tests in `tests/test_noise_mixing.py`: spectral slope of colored noise (fitted PSD slope
+    ≈ −β), reproducibility across generators, call order and seeds, distribution of the draws
+    (clean fraction, β and SNR ranges), clean recordings, parameter validation, cache name.
+- **Note**: since the same `seed` also drives the RIR train/test split in the configs, a new
+  noise realization with the same split is not possible without a code change. If that is
+  ever needed, add an optional offset rather than a second seed.
 
 ---
 

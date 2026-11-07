@@ -57,9 +57,14 @@ can learn and that is absent in the field.
 - A broadband SNR does not mean the same SNR per band: with pink noise and speech, 4 kHz sits
   ~15 dB and 8 kHz ~19 dB below the broadband value on average. The generator stores the
   resulting per-band SNR in `snr_band`.
-- Pink noise: `pink_noise(n, rng=rng)` (wraps
-  `colorednoise.powerlaw_psd_gaussian(1, n, random_state=rng)`), with an explicit `rng`.
-  `rng=None` falls back to the global state only for legacy code (BUG-06).
+- Noise color: `colored_noise(n, beta, rng=rng)` (power density ∝ 1/f^β; `pink_noise` = β 1).
+  Room background noise lies between pink (β = 1) and brown (β = 2); pink is the worst case for
+  2–8 kHz. The generator draws β per recording from `noise_beta` (DATA-09).
+- Per recording, the generator draws in this fixed order: clean/noisy (`clean_fraction`) → β →
+  SNR → noise realization, from a generator seeded with the project seed and the recording
+  name (`DataBaseGenerator._noise_rng`). Same seed + same recording = same noisy recording.
+- The TAE needs ~15 dB of SNR **per band** to resemble the clean one in the dB domain (r ≥ 0.9);
+  below ~5 dB it is mostly noise (DATA-09 analysis).
 - Verify the achieved SNR after mixing (`10·log10(P_y / P_an)` ≈ target ± 0.01 dB).
 
 ## Envelope (TAE)

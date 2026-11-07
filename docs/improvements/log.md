@@ -81,3 +81,16 @@ Entries in chronological order, most recent **at the end**. Absolute dates
 - Found while running it: `F5s3.wav` and `M8s3.wav` are shorter than 5 s and all their records
   are silently dropped (evidence added to BUG-05).
 - Decision on the range/color pending with the maintainer (options a/b/c in the backlog).
+
+## 2026-11-07 — DATA-09: reproducible colored noise with a clean fraction
+
+- **Decision** (maintainer): option (c) of DATA-09, and one **project-wide seed**: the
+  config's `seed` drives every random process; no separate noise seed.
+- Implemented `colored_noise`, the generator parameters `noise_beta`, `clean_fraction` and
+  `seed` (passed by `run.py`, legacy defaults for the v0 configs), per-recording generators
+  seeded with `(seed, RNG_STREAMS['noise'], crc32(recording_name))`, and the `noise_beta`
+  record field. `DATA_PIPELINE_VERSION` → 4.
+- Recommended values for the noisy variant of baseline v1: `snr = [0, 40]`,
+  `noise_beta = [1.0, 2.0]`, `clean_fraction = 0.2` (to be set in the v1 configs).
+- `RNG_STREAMS` is the pattern for the rest of BUG-06 (augmentation draws).
+- Test suite: 57 passing tests.

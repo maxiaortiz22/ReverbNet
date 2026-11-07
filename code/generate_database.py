@@ -1,5 +1,6 @@
 import os
 import random
+import zlib
 from datetime import datetime
 from math import nan
 from pathlib import Path
@@ -15,7 +16,7 @@ from .mixing import mix_at_snr
 from filters import BandpassFilter
 from .parameters_calculation import (TAE, NoiseError,
                                     TrAugmentationError,
-                                    drr_aug, find_onset, get_DRR, pink_noise,
+                                    colored_noise, drr_aug, find_onset, get_DRR,
                                     tr_augmentation, tr_lundeby)
 
 # Version of the data-generation pipeline. Bump it whenever a change alters the
@@ -24,7 +25,15 @@ from .parameters_calculation import (TAE, NoiseError,
 #   1: causal convolution instead of mode='same' (BUG-01).
 #   2: C50/C80/D50 integrated from the direct-sound onset (BUG-02).
 #   3: noise mixed broadband before the filter bank; one SNR per recording (BUG-03).
-DATA_PIPELINE_VERSION = 3
+#   4: random noise color, clean fraction and per-recording seeded noise (DATA-09).
+DATA_PIPELINE_VERSION = 4
+
+# One project-wide seed (the config's `seed`) feeds every random process. Each process
+# gets its own stream id so their draws are independent of each other; never reuse or
+# renumber an id, since that would change previously reproducible databases.
+RNG_STREAMS = {
+    'noise': 1,  # clean/noisy decision, noise color, SNR and noise realization (DATA-09)
+}
 
 
 class DataBaseGenerator:
@@ -38,7 +47,7 @@ class DataBaseGenerator:
     2. Convolve speech with each (original and optionally augmented) RIR.
     3. Split signals into frequency bands using a C++ filter bank.
     4. Compute room/acoustic descriptors (T30, C50, C80, D50, DRR) per band.
-    5. Optionally add pink noise at random SNRs and compute TAE features.
+    5. Optionally add colored noise (reproducible per recording) and compute TAE features.
     6. Accumulate records suitable for DataFrame / pickle storage.
 
     The instance is intentionally pickle‑friendly to support multiprocessing;
@@ -50,12 +59,36 @@ class DataBaseGenerator:
         'rirs_for_training', 'rirs_for_testing', 'bands', 'filter_type', 'fs',
         'max_ruido_dB', 'order', 'add_noise', 'snr', 'tr_aug_params', 'drr_aug_params',
         'db_name', 'sos_lowpass_filter', 'tr_variations', 'drr_variations', 'bp_filter',
-        'data_path', 'cache_path'
+        'data_path', 'cache_path', 'noise_beta', 'clean_fraction', 'seed'
     )
 
     def __init__(self, speech_files_train, speech_files_test, rir_files, to_augmentate,
                  rirs_for_training, rirs_for_testing, bands, filter_type, fs,
-                 max_ruido_dB, order, add_noise, snr, tr_aug_params, drr_aug_params):
+                 max_ruido_dB, order, add_noise, snr, tr_aug_params, drr_aug_params,
+                 noise_beta=(1.0, 1.0), clean_fraction=0.0, seed=0):
+        """
+        Noise parameters (used only when ``add_noise`` is True; see DATA-09)
+        --------------------------------------------------------------------
+        snr : [low, high]
+            Broadband SNR range in dB, drawn uniformly per recording.
+        noise_beta : [low, high], default=(1.0, 1.0)
+            Range of the noise spectral exponent (1/f^beta), drawn uniformly per recording.
+            (1.0, 1.0) = always pink (legacy behavior).
+        clean_fraction : float in [0, 1], default=0.0
+            Probability that a recording is left noise-free.
+        seed : int, default=0
+            Project-wide seed (the config's ``seed``). Each random process derives its own
+            stream from it (see ``RNG_STREAMS``). For noise, the seed and the recording name
+            fully determine whether a recording is noisy, its color, its SNR and the noise
+            realization, so the same configuration always yields the same noisy database,
+            regardless of processing order or of which other files are included.
+        """
+        if len(snr) != 2 or snr[0] > snr[-1]:
+            raise ValueError(f"`snr` must be [low, high] with low <= high, got {snr}")
+        if len(noise_beta) != 2 or noise_beta[0] > noise_beta[1]:
+            raise ValueError(f"`noise_beta` must be [low, high] with low <= high, got {noise_beta}")
+        if not 0.0 <= clean_fraction <= 1.0:
+            raise ValueError(f"`clean_fraction` must be in [0, 1], got {clean_fraction}")
         # --- Parameter assignment ---
         self.speech_files_train = speech_files_train
         self.speech_files_test = speech_files_test
@@ -72,7 +105,10 @@ class DataBaseGenerator:
         self.snr = snr
         self.tr_aug_params = tr_aug_params
         self.drr_aug_params = drr_aug_params
-        
+        self.noise_beta = (float(noise_beta[0]), float(noise_beta[1]))
+        self.clean_fraction = float(clean_fraction)
+        self.seed = int(seed)
+
         # --- Paths ---
         self.data_path = Path('data')
         self.cache_path = Path('cache')
@@ -84,6 +120,8 @@ class DataBaseGenerator:
             f'traug_{"_".join(map(str, self.tr_aug_params))}_'
             f'drraug_{"_".join(map(str, self.drr_aug_params))}_'
             f'snr_{self.snr[0]}_{self.snr[-1]}_'
+            f'beta_{self.noise_beta[0]}_{self.noise_beta[1]}_'
+            f'clean_{self.clean_fraction}_seed_{self.seed}_'
             f'dv{DATA_PIPELINE_VERSION}'
         )
 
@@ -121,41 +159,75 @@ class DataBaseGenerator:
         drr, _, _ = get_DRR(rir_band, self.fs)
         return {'T30': t30, 'C50': c50, 'C80': c80, 'D50': d50, 'DRR': drr}
         
+    def _noise_rng(self, recording_name: str) -> np.random.Generator:
+        """
+        Random generator for the noise of one recording.
+
+        Seeded with ``(seed, RNG_STREAMS['noise'], crc32(recording_name))``: the draws depend
+        only on the project seed and on the recording identity (``speech|rir|augmentation``),
+        not on processing order, worker scheduling or which other files are in the database.
+        ``zlib.crc32`` is used because Python's ``hash`` is salted per process.
+        """
+        return np.random.default_rng(
+            [self.seed, RNG_STREAMS['noise'], zlib.crc32(recording_name.encode('utf-8'))]
+        )
+
+    def _draw_noise_settings(self, rng: np.random.Generator) -> tuple:
+        """
+        Draw the noise settings of one recording, in a fixed order.
+
+        Returns
+        -------
+        tuple
+            ``(beta, snr_db)``, or ``None`` if the recording stays noise-free (probability
+            ``clean_fraction``).
+        """
+        # The order of the draws is part of the reproducibility contract: do not reorder.
+        is_clean = rng.random() < self.clean_fraction
+        beta = float(rng.uniform(*self.noise_beta))
+        snr_db = float(rng.uniform(self.snr[0], self.snr[-1]))
+        return None if is_clean else (beta, snr_db)
+
     def _build_input_bands(self, reverbed_audio: np.ndarray, rng=None) -> tuple:
         """
         Emulate the recording and split it into bands, as inference does.
 
-        If ``add_noise`` is enabled, pink noise is mixed **broadband** with the reverberant
-        speech at an SNR drawn uniformly from ``self.snr``, and only then is the mixture
-        passed through the filter bank (BUG-03). Previously, unfiltered broadband noise was
-        added to each already band-filtered signal at the same per-band SNR.
+        If ``add_noise`` is enabled and the recording is not drawn as clean, colored noise
+        (``1/f^beta``) is mixed **broadband** with the reverberant speech at a random SNR,
+        and only then is the mixture passed through the filter bank (BUG-03). Color, SNR
+        and the clean/noisy decision are drawn per recording (DATA-09).
 
         Parameters
         ----------
         reverbed_audio : ndarray, shape (n_samples,)
             Clean reverberant speech (speech * RIR).
-        rng : numpy.random.Generator or None, default=None
-            Random source for the SNR draw and the noise. ``None`` uses NumPy's global
-            state (legacy behavior, see BUG-06).
+        rng : numpy.random.Generator or None
+            Random source for this recording (see :meth:`_noise_rng`). Required when
+            ``add_noise`` is True.
 
         Returns
         -------
         input_bands : ndarray, shape (n_bands, n_samples)
-            Band-filtered recording (speech, plus noise if enabled).
+            Band-filtered recording (speech, plus noise if any).
         snr_db : float
-            Broadband SNR in dB, or NaN without noise.
+            Broadband SNR in dB, or NaN for a noise-free recording.
         band_snr_db : ndarray, shape (n_bands,)
-            Resulting SNR per band in dB (diagnostic), or NaN without noise.
+            Resulting SNR per band in dB (diagnostic), or NaN for a noise-free recording.
+        beta : float
+            Spectral exponent of the added noise, or NaN for a noise-free recording.
         """
-        if not self.add_noise:
-            input_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))
-            return input_bands, nan, np.full(len(self.bands), nan)
+        settings = None
+        if self.add_noise:
+            if rng is None:
+                raise ValueError("`rng` is required when add_noise is True (see _noise_rng)")
+            settings = self._draw_noise_settings(rng)
 
-        if rng is None:
-            snr_db = float(np.random.uniform(self.snr[0], self.snr[-1]))
-        else:
-            snr_db = float(rng.uniform(self.snr[0], self.snr[-1]))
-        noise = pink_noise(len(reverbed_audio), rng=rng)
+        if settings is None:
+            input_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))
+            return input_bands, nan, np.full(len(self.bands), nan), nan
+
+        beta, snr_db = settings
+        noise = colored_noise(len(reverbed_audio), beta, rng=rng)
         mixture, gain = mix_at_snr(reverbed_audio, noise, snr_db)
 
         input_bands = self.bp_filter.filter_signals(mixture.astype(np.float32))
@@ -165,7 +237,7 @@ class DataBaseGenerator:
         speech_power = np.mean((input_bands - noise_bands) ** 2, axis=1)
         noise_power = np.mean(noise_bands**2, axis=1)
         band_snr_db = 10 * np.log10(speech_power / noise_power)
-        return input_bands, snr_db, band_snr_db
+        return input_bands, snr_db, band_snr_db, beta
 
     def process_single_rir(self, rir_file: str) -> list:
         """
@@ -279,8 +351,12 @@ class DataBaseGenerator:
         reverbed_audio = causal_convolve(speech_data, rir_data)
         reverbed_audio /= np.max(np.abs(reverbed_audio))
 
+        name = f'{speech_name}|{rir_name}|{aug_tag}'
+
         # One recording per entry: broadband noise (if enabled), then the filter bank (BUG-03).
-        input_bands, snr_db, band_snr_db = self._build_input_bands(reverbed_audio)
+        # Noise draws are seeded per recording, so they are reproducible (DATA-09).
+        rng = self._noise_rng(name) if self.add_noise else None
+        input_bands, snr_db, band_snr_db, noise_beta = self._build_input_bands(reverbed_audio, rng)
         filtered_rir_bands = self.bp_filter.filter_signals(rir_data.astype(np.float32))
         # Energy ratios are integrated from the broadband direct-sound onset, shared by
         # all bands (BUG-02). The RIR is trimmed before filtering.
@@ -290,7 +366,6 @@ class DataBaseGenerator:
         )
 
         entry_records = []
-        name = f'{speech_name}|{rir_name}|{aug_tag}'
 
         for i, band in enumerate(self.bands):
             try:
@@ -306,8 +381,9 @@ class DataBaseGenerator:
                     'descriptors': [descriptors['T30'], descriptors['C50'], descriptors['C80'], descriptors['D50']],
                     'drr': descriptors['DRR'],
                     'tae': list(tae),
-                    'snr': snr_db,                    # broadband SNR of the recording (dB)
-                    'snr_band': float(band_snr_db[i]),  # resulting SNR in this band (dB)
+                    'snr': snr_db,                    # broadband SNR of the recording (dB); NaN = clean
+                    'snr_band': float(band_snr_db[i]),  # resulting SNR in this band (dB); NaN = clean
+                    'noise_beta': noise_beta,         # noise color exponent (1/f^beta); NaN = clean
                 }
                 entry_records.append(record)
             except (ValueError, NoiseError, Exception) as e:

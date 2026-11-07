@@ -41,7 +41,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | BUG-03 | Pink noise added after the filter bank and unfiltered | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
 | BUG-04 | Train/val/test leakage (normalization, per-record validation, shared rooms and speakers) | P0 | 1 | todo | |
 | BUG-05 | Silenced exceptions (`except Exception: continue`) and `DRRR_buscado` typo | P1 | 1 | todo | |
-| BUG-06 | Reproducibility: per-iteration `random.sample`, clock-based seed, `os.listdir` order | P1 | 1 | todo | |
+| BUG-06 | Reproducibility: per-iteration `random.sample`, clock-based seed, `os.listdir` order | P1 | 1 | in progress | `fix/BUG-01-causal-convolution` (noise RNG only) |
 | BUG-07 | `argmax(rir)` without `abs` to detect the direct sound | P2 | 1 | todo | |
 | BUG-08 | The `code` package shadows the stdlib `code` module (breaks `import tensorflow` from the root) | P1 | 1 | todo | |
 | DATA-01 | Derive D50 from C50 (deterministic relation) | P1 | 4 | todo | |
@@ -50,9 +50,9 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | DATA-04 | Add real RIR datasets (ACE, BUT ReverbDB, MIT, OpenAIR, Arni…) | P1 | 4 | todo | |
 | DATA-05 | C50/C80 augmentation (early energy) | P2 | 4 | todo | |
 | DATA-06 | Larger speech corpus, random crops and VAD | P1 | 4 | todo | |
-| DATA-07 | Real noise types and a clean/noisy mix | P2 | 4 | todo | |
+| DATA-07 | Real noise types and a clean/noisy mix | P2 | 4 | in progress | `fix/BUG-01-causal-convolution` (noise color + clean mix) |
 | DATA-08 | Filter influence on descriptors (zero-phase / time-reversed filtering, 8 kHz band) | P2 | 4 | todo | |
-| DATA-09 | Revisit the SNR range/definition: broadband −5…20 dB leaves 4–8 kHz bands at −24…+6 dB | P1 | 3 | todo | |
+| DATA-09 | Revisit the SNR range/definition: broadband −5…20 dB leaves 4–8 kHz bands at −24…+6 dB | P1 | 3 | done | `fix/BUG-01-causal-convolution` |
 | TRAIN-01 | One multi-band model instead of 7 networks | P1 | 4 | todo | |
 | TRAIN-02 | Higher-capacity architecture with global pooling | P2 | 4 | todo | |
 | TRAIN-03 | Z-score normalization with train stats, Huber/NLL loss with uncertainty | P1 | 4 | todo | |

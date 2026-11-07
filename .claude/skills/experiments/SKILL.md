@@ -19,6 +19,19 @@ description: Workflow for running, recording and comparing ReverbNet experiments
 5. **Disk and time**: each database takes ~4.3 GB; training runs on CPU (TRAIN-06) and takes
    hours. Warn the user before launching anything long.
 
+## Config keys for noise and randomness
+
+- `seed`: the **only** seed of the project. It drives the RIR train/test split in the config
+  and every random process of data generation (noise today; augmentation once BUG-06 is done).
+  Changing it changes both the split and the noise.
+- `add_noise`: master switch for noise.
+- `snr`: broadband SNR range in dB, drawn uniformly per recording.
+- `noise_beta`: range of the noise spectral exponent (1/f^β), drawn per recording.
+- `clean_fraction`: probability that a recording stays noise-free.
+- Recommended noisy setup (DATA-09): `snr = [0, 40]`, `noise_beta = [1.0, 2.0]`,
+  `clean_fraction = 0.2`. If `noise_beta`/`clean_fraction` are missing, `run.py` falls back to
+  the legacy setup (always pink, no clean fraction), which is what the v0 configs exp1–4 use.
+
 ## Running
 
 ```bash
