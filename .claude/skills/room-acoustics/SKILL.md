@@ -34,6 +34,9 @@ Normative reference: **ISO 3382-1** (performance spaces). Current implementation
 - `max_ruido_dB` (configs: −60 or −45 dB) discards RIRs whose noise (last 10 %) exceeds that
   level relative to the peak → `NoiseError`. These RIRs are discarded per band, which is why
   there is less data at 125 and 250 Hz.
+- Measured on the 468 real RIRs (DATA-10): at −60 dB none survive at 125/250 Hz and only
+  278/312 at 500 Hz/1 kHz; at −45 dB all survive from 500 Hz up and 211 at 250 Hz; none at
+  125 Hz either way. −45 dB is the ISO minimum for T30, so −60 dB is stricter than needed.
 
 ## Reverberation time
 

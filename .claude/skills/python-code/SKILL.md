@@ -31,9 +31,14 @@ description: Conventions for writing and modifying Python code in ReverbNet (the
 
 ## Errors
 
-- `except Exception: continue` / `except: pass` are **forbidden**. Catch specific exceptions
-  (`NoiseError`, `TrAugmentationError`, `ValueError`) and **log** the discard with its reason
-  (BUG-05).
+- `except Exception: continue` / `except: pass` are **forbidden**. Catch only the specific,
+  expected failures and **count** each discard by reason (BUG-05). The generator's pattern:
+  a `collections.Counter` keyed `'<unit>:<reason>'` (`band:lundeby_noise`,
+  `tr_variant:tr_augmentation_<cause>`, `drr_variant:unrealizable`), returned by the worker
+  and summarized in `generation_summary.json`. Unexpected exceptions must propagate.
+- Domain failures get their own exception class (`NoiseError`, `TrAugmentationError` with
+  `.cause`, `DrrAugmentationError`); never wrap programming errors (`NameError`, `TypeError`,
+  `AttributeError`, `KeyError`) into them.
 - Validate inputs at the top of the function and raise `ValueError` with a clear message.
 - Do not use `assert` to validate data at runtime (it is disabled with `-O`); use
   `if ...: raise ValueError(...)`.

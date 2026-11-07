@@ -28,25 +28,29 @@ pandas.DataFrame
 """
 
 import pandas as pd
-import os
+from pathlib import Path
 from progress.bar import IncrementalBar
+
+# Written last by run.py when a database is complete (counts, discards by reason).
+GENERATION_SUMMARY = 'generation_summary.json'
 
 
 def read_dataset(band, db_name, sample_frac=1.0, random_state=None, type_data='train'):
     """Read and concatenate cached database partitions for a given band/split."""
-    partitions = os.listdir(f'cache/{db_name}')
+    # Only the numbered pickle partitions, in numeric order (os.listdir order is arbitrary
+    # and the folder also holds the generation summary).
+    partitions = sorted(Path('cache', db_name).glob('*.pkl'), key=lambda p: int(p.stem))
 
     bar = IncrementalBar('Reading database', max=len(partitions))
 
-    db = pd.DataFrame()
+    parts = []
     for partition in partitions:
-        # Load partition.
-        aux_df = pd.read_pickle(f'cache/{db_name}/{partition}')
-        # Filter by band and split, then accumulate.
-        filtered_df = aux_df.loc[(aux_df.band == band) & (aux_df.type_data == type_data)]
-        db = pd.concat([db, filtered_df], ignore_index=True)
+        aux_df = pd.read_pickle(partition)
+        # Filter by band and split, then accumulate (concatenated once at the end).
+        parts.append(aux_df.loc[(aux_df.band == band) & (aux_df.type_data == type_data)])
         bar.next()
-    
+
+    db = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
     db = db.sample(frac=sample_frac, random_state=random_state)
     bar.finish()
 

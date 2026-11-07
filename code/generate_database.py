@@ -1,8 +1,7 @@
 import hashlib
 import json
-import os
-import random
-from datetime import datetime
+import logging
+from collections import Counter
 from math import nan
 from pathlib import Path
 
@@ -16,10 +15,18 @@ from .cpp import audio_processing
 from .mixing import mix_at_snr
 from .random_streams import RNG_STREAMS, item_rng  # noqa: F401 (RNG_STREAMS re-exported)
 from filters import BandpassFilter
-from .parameters_calculation import (TAE, NoiseError,
+from .parameters_calculation import (TAE, DrrAugmentationError, NoiseError,
                                     TrAugmentationError,
                                     colored_noise, drr_aug, find_onset, get_DRR,
                                     tr_augmentation, tr_lundeby)
+
+logger = logging.getLogger(__name__)
+
+# Duration of every speech recording fed to the pipeline (the TAE expects 5 s × 40 Hz).
+SPEECH_DURATION_S = 5.0
+
+# Short speech files already reported in this process (avoids one warning per RIR).
+_WARNED_SHORT_SPEECH: set[str] = set()
 
 # Version of the data-generation pipeline. Bump it whenever a change alters the
 # generated features (TAE) or labels (descriptors), so that a stale cache built by
@@ -28,7 +35,9 @@ from .parameters_calculation import (TAE, NoiseError,
 #   2: C50/C80/D50 integrated from the direct-sound onset (BUG-02).
 #   3: noise mixed broadband before the filter bank; one SNR per recording (BUG-03).
 #   4: random noise color, clean fraction and per-recording seeded noise (DATA-09).
-DATA_PIPELINE_VERSION = 4
+#   5: reproducible augmentation built once per RIR, exactly 5 DRR TR-variants per RIR,
+#      short speech zero-padded to 5 s, only expected failures discarded (BUG-05/06).
+DATA_PIPELINE_VERSION = 5
 
 
 class DataBaseGenerator:
@@ -265,13 +274,15 @@ class DataBaseGenerator:
         band_snr_db = 10 * np.log10(speech_power / noise_power)
         return input_bands, snr_db, band_snr_db, beta
 
-    def process_single_rir(self, rir_file: str) -> list:
+    def process_single_rir(self, rir_file: str) -> tuple:
         """
         Worker method for multiprocessing.
 
-        Process a *single* RIR across all speech files (train/test split honored),
-        apply configured augmentations (TR / nested DRR), compute descriptors and
-        TAE features for each band, and return a list of record dictionaries.
+        Process a *single* RIR across all speech files of its split. The RIR variants
+        (original + TR/DRR augmentations) are built **once per RIR** with seeded generators
+        and then convolved with every speech file, so every speech file sees exactly the
+        same augmented RIRs and labels (BUG-06, CODE-01). Previously the augmentation was
+        recomputed for each speech file with a clock-seeded, non-reproducible random tail.
 
         Parameters
         ----------
@@ -280,16 +291,17 @@ class DataBaseGenerator:
 
         Returns
         -------
-        list of dict
-            One record per (speech_file, band, augmentation) combination.
+        records : list of dict
+            One record per (speech file, RIR variant, band).
+        discards : collections.Counter
+            Discarded items by reason, keyed ``'<unit>:<reason>'``: ``band`` (one band record
+            of one recording), ``tr_variant`` or ``drr_variant`` (one RIR variant, i.e. all
+            its speech files and bands). Only expected failures are counted; anything else
+            raises (BUG-05).
         """
-        print(f"Starting process for RIR: {rir_file}...")
-    
-        # --- Per‑RIR initialization ---
         rir_name = Path(rir_file).stem
         rir_data = self._load_and_normalize_audio(self.data_path / 'RIRs' / rir_file)
-        records_for_this_rir = []
-        random.seed(int(datetime.now().timestamp()))  # Re‑seed RNG per process.
+        discards = Counter()
 
         # --- Determine train/test membership ---
         if rir_file in self.rirs_for_training:
@@ -301,55 +313,133 @@ class DataBaseGenerator:
             speech_type = 'test'
             speech_path = self.data_path / 'Speech' / 'test'
 
-        # --- Iterate over all speech files for this split ---
+        variants = [('original', rir_data)] + self._augmented_variants(rir_name, rir_data, discards)
+        # Descriptors depend only on the RIR variant: compute them once, not per speech file.
+        rir_descriptors = [self._rir_band_descriptors(variant) for _, variant in variants]
+
+        records = []
         for speech_file in speech_files:
             speech_name = Path(speech_file).stem
-            speech_data = self._load_and_normalize_audio(
-                self._speech_file_path(speech_path, speech_file), duration=5.0
-            )
+            speech_data = self._load_speech(self._speech_file_path(speech_path, speech_file))
+            for (aug_tag, variant), descriptors in zip(variants, rir_descriptors):
+                records.extend(self._process_entry(
+                    speech_data, variant, speech_name, rir_name, speech_type, aug_tag, discards,
+                    rir_descriptors=descriptors,
+                ))
+        return records, discards
 
-            # 1. Always process the *original* RIR.
-            records_for_this_rir.extend(self._process_entry(
-                speech_data, rir_data, speech_name, rir_name, speech_type, 'original'
-            ))
+    def _rir_band_descriptors(self, rir_data: np.ndarray) -> list:
+        """
+        Descriptors of every band of one RIR variant.
 
-            # 2. Check if this RIR is subject to augmentation.
-            should_augment = not ('sintetica' in rir_name or not any(rir_name in s for s in self.to_augmentate))
-            if not should_augment:
+        Returns
+        -------
+        list
+            One item per band: the descriptor dict, or the discard reason (``str``) when the
+            band is an expected failure (``'lundeby_noise'``: the band RIR does not meet the
+            Lundeby noise criterion; ``'non_finite_descriptor'``). Any other exception is a
+            bug and propagates (BUG-05).
+        """
+        filtered_rir_bands = self.bp_filter.filter_signals(rir_data.astype(np.float32))
+        # Energy ratios are integrated from the broadband direct-sound onset, shared by
+        # all bands (BUG-02). The RIR is trimmed before filtering.
+        onset = find_onset(rir_data)
+        filtered_rir_bands_from_onset = self.bp_filter.filter_signals(
+            rir_data[onset:].astype(np.float32)
+        )
+
+        per_band = []
+        for i in range(len(self.bands)):
+            try:
+                descriptors = self._calculate_descriptors(
+                    filtered_rir_bands[i], filtered_rir_bands_from_onset[i]
+                )
+            except NoiseError:
+                per_band.append('lundeby_noise')
                 continue
-            
-            # 3. TR augmentation sweep.
-            for tr_var in self.tr_variations:
-                try:
-                    rir_tr_aug = tr_augmentation(rir_data, self.fs, tr_var, self.bp_filter)
-                    rir_tr_aug /= np.max(np.abs(rir_tr_aug))
-                    
-                    aug_tag = f'TR_var_{tr_var:.2f}'
-                    records_for_this_rir.extend(self._process_entry(
-                        speech_data, rir_tr_aug, speech_name, rir_name, speech_type, aug_tag
-                    ))
+            values = [descriptors[k] for k in ('T30', 'C50', 'C80', 'D50')]
+            per_band.append(descriptors if np.all(np.isfinite(values)) else 'non_finite_descriptor')
+        return per_band
 
-                    # 4. Nested DRR augmentation (random subset of TR variants).
-                    if tr_var in random.sample(list(self.tr_variations), k=5):
-                        for drr_var in self.drr_variations:
-                            try:
-                                rir_drr_aug = drr_aug(rir_tr_aug, self.fs, drr_var)
-                                rir_drr_aug /= np.max(np.abs(rir_drr_aug))
-                                
-                                aug_tag = f'TR_{tr_var:.2f}_DRR_var_{drr_var:.2f}'
-                                records_for_this_rir.extend(self._process_entry(
-                                    speech_data, rir_drr_aug, speech_name, rir_name, speech_type, aug_tag
-                                ))
-                            except Exception:
-                                continue
-                except (TrAugmentationError, Exception):
+    def _should_augment(self, rir_name: str) -> bool:
+        """Whether ``rir_name`` (a file stem) is a real RIR selected for augmentation."""
+        if 'sintetica' in rir_name:
+            return False
+        return rir_name in {Path(f).stem for f in self.to_augmentate}
+
+    def _augmented_variants(self, rir_name: str, rir_data: np.ndarray, discards: Counter) -> list:
+        """
+        Build the TR and nested DRR variants of one RIR, reproducibly.
+
+        * One TR variant per value of the TR sweep; the synthesized noiseless tail uses a
+          generator seeded with ``(seed, 'tr_tail', rir_name|tr)``.
+        * DRR variants are built for exactly ``min(5, n_tr)`` TR variants, chosen once per RIR
+          with ``(seed, 'drr_subset', rir_name)``. (v0 re-drew the subset at every iteration,
+          so each TR variant entered with p = 5/29.)
+
+        Expected failures are counted in ``discards``: ``TrAugmentationError`` (by cause,
+        see BUG-09) and unrealizable DRR targets.
+
+        Returns
+        -------
+        list of (str, ndarray)
+            ``(augmentation tag, peak-normalized RIR)`` pairs.
+        """
+        if not self._should_augment(rir_name):
+            return []
+
+        n_drr = min(5, len(self.tr_variations))
+        drr_subset = set(
+            item_rng(self.seed, 'drr_subset', rir_name)
+            .choice(len(self.tr_variations), size=n_drr, replace=False)
+            .tolist()
+        )
+
+        variants = []
+        for idx, tr_var in enumerate(self.tr_variations):
+            tail_rng = item_rng(self.seed, 'tr_tail', f'{rir_name}|{tr_var:.2f}')
+            try:
+                rir_tr = tr_augmentation(rir_data, self.fs, tr_var, self.bp_filter, rng=tail_rng)
+            except TrAugmentationError as err:
+                discards[f'tr_variant:tr_augmentation_{err.cause}'] += 1
+                continue
+            rir_tr = rir_tr / np.max(np.abs(rir_tr))
+            variants.append((f'TR_var_{tr_var:.2f}', rir_tr))
+
+            if idx not in drr_subset:
+                continue
+            for drr_var in self.drr_variations:
+                try:
+                    rir_drr = drr_aug(rir_tr, self.fs, drr_var)
+                except DrrAugmentationError:
+                    discards['drr_variant:unrealizable'] += 1
                     continue
-        
-        print(f"Process for RIR: {rir_file} finished. ✅")
-        return records_for_this_rir
-    
+                variants.append((f'TR_{tr_var:.2f}_DRR_var_{drr_var:.2f}', rir_drr / np.max(np.abs(rir_drr))))
+        return variants
+
+    def _load_speech(self, file_path: Path) -> np.ndarray:
+        """
+        Load a speech file as exactly ``SPEECH_DURATION_S`` seconds, peak-normalized.
+
+        Longer files are cropped; shorter files are zero-padded at the end (the speaker
+        stops and the recording window continues) with a warning. In v0 the two short
+        training files (F5s3, M8s3) were silently dropped by the TAE length check (BUG-05).
+        """
+        n_samples = int(round(SPEECH_DURATION_S * self.fs))
+        audio, _ = load(file_path, sr=self.fs, duration=SPEECH_DURATION_S)
+        if audio.size < n_samples:
+            if str(file_path) not in _WARNED_SHORT_SPEECH:  # once per file and process
+                _WARNED_SHORT_SPEECH.add(str(file_path))
+                logger.warning("Speech file %s lasts %.2f s; zero-padding to %.1f s",
+                               file_path, audio.size / self.fs, SPEECH_DURATION_S)
+            audio = np.pad(audio, (0, n_samples - audio.size))
+        audio = audio[:n_samples]
+        peak = np.max(np.abs(audio))
+        return audio / peak if peak > 0 else audio
+
     def _process_entry(self, speech_data: np.ndarray, rir_data: np.ndarray,
-                       speech_name: str, rir_name: str, speech_type: str, aug_tag: str) -> list:
+                       speech_name: str, rir_name: str, speech_type: str, aug_tag: str,
+                       discards: Counter | None = None, rir_descriptors: list | None = None) -> list:
         """
         Process a single (speech, RIR[, augmentation]) combination and produce
         per‑band database records.
@@ -368,12 +458,21 @@ class DataBaseGenerator:
             Dataset split label.
         aug_tag : str
             Augmentation tag (e.g., ``'original'``, ``'TR_var_0.50'``).
+        discards : collections.Counter, optional
+            Incremented with ``'band:<reason>'`` for every discarded band record.
+        rir_descriptors : list, optional
+            Output of :meth:`_rir_band_descriptors` for ``rir_data``, to avoid recomputing
+            it for every speech file (CODE-01). Computed here if omitted.
 
         Returns
         -------
         list of dict
             Records suitable for DataFrame construction.
         """
+        if discards is None:
+            discards = Counter()
+        if rir_descriptors is None:
+            rir_descriptors = self._rir_band_descriptors(rir_data)
         # Causal convolution truncated to the speech length, emulating a recording window
         # (BUG-01: mode='same' shifted the output by (len(rir)-1)//2 samples).
         reverbed_audio = causal_convolve(speech_data, rir_data)
@@ -385,130 +484,61 @@ class DataBaseGenerator:
         # Noise draws are seeded per recording, so they are reproducible (DATA-09).
         rng = self._noise_rng(name) if self.add_noise else None
         input_bands, snr_db, band_snr_db, noise_beta = self._build_input_bands(reverbed_audio, rng)
-        filtered_rir_bands = self.bp_filter.filter_signals(rir_data.astype(np.float32))
-        # Energy ratios are integrated from the broadband direct-sound onset, shared by
-        # all bands (BUG-02). The RIR is trimmed before filtering.
-        onset = find_onset(rir_data)
-        filtered_rir_bands_from_onset = self.bp_filter.filter_signals(
-            rir_data[onset:].astype(np.float32)
-        )
 
         entry_records = []
 
         for i, band in enumerate(self.bands):
-            try:
-                descriptors = self._calculate_descriptors(
-                    filtered_rir_bands[i], filtered_rir_bands_from_onset[i]
-                )
-                tae = TAE(input_bands[i], self.fs, self.sos_lowpass_filter)
-
-                record = {
-                    'ReverbedAudio': name,
-                    'type_data': speech_type,
-                    'band': band,
-                    'descriptors': [descriptors['T30'], descriptors['C50'], descriptors['C80'], descriptors['D50']],
-                    'drr': descriptors['DRR'],
-                    'tae': list(tae),
-                    'snr': snr_db,                    # broadband SNR of the recording (dB); NaN = clean
-                    'snr_band': float(band_snr_db[i]),  # resulting SNR in this band (dB); NaN = clean
-                    'noise_beta': noise_beta,         # noise color exponent (1/f^beta); NaN = clean
-                }
-                entry_records.append(record)
-            except (ValueError, NoiseError, Exception) as e:
-                # print(f"Error processing {name} in band {band}: {e}")
+            descriptors = rir_descriptors[i]
+            if isinstance(descriptors, str):  # expected discard, counted per band record
+                discards[f'band:{descriptors}'] += 1
                 continue
+            values = [descriptors['T30'], descriptors['C50'], descriptors['C80'], descriptors['D50']]
+
+            tae = TAE(input_bands[i], self.fs, self.sos_lowpass_filter)
+            entry_records.append({
+                'ReverbedAudio': name,
+                'type_data': speech_type,
+                'band': band,
+                'descriptors': values,
+                'drr': descriptors['DRR'],
+                'tae': list(tae),
+                'snr': snr_db,                      # broadband SNR of the recording (dB); NaN = clean
+                'snr_band': float(band_snr_db[i]),  # resulting SNR in this band (dB); NaN = clean
+                'noise_beta': noise_beta,           # noise color exponent (1/f^beta); NaN = clean
+            })
         return entry_records
 
     def generate_database(self):
         """
-        Generate and cache the full database (single‑process version).
+        Generate and cache the full database serially (no multiprocessing).
 
-        This method mirrors :meth:`process_single_rir` but executes serially
-        under the caller's control (no multiprocessing). Results are cached as
-        a pickle for reuse.
+        Reuses :meth:`process_single_rir` for every RIR, so it produces exactly the same
+        records as the multiprocessing path in ``run.py`` (CODE-09: this used to be a
+        duplicated copy of the worker logic).
 
         Returns
         -------
         pandas.DataFrame or None
             The generated database, or ``None`` if no records were produced.
         """
-        # --- Cache check ---
         db_file = self.cache_path / f'{self.db_name}.pkl'
         if db_file.exists():
-            print(f"Database already exists at: {db_file}")
+            logger.info("Database already exists at: %s", db_file)
             return pd.read_pickle(db_file)
 
-        all_records = []
-        
-        # --- Main loop over RIRs ---
+        all_records, discards = [], Counter()
         for rir_file in self.rir_files:
-            print(f"Processing RIR: {rir_file}...")
-            rir_name = Path(rir_file).stem
-            rir_data = self._load_and_normalize_audio(self.data_path / 'RIRs' / rir_file)
+            records, rir_discards = self.process_single_rir(rir_file)
+            all_records.extend(records)
+            discards.update(rir_discards)
 
-            # Determine train/test membership (avoid code duplication).
-            if rir_file in self.rirs_for_training:
-                speech_files = self.speech_files_train
-                speech_type = 'train'
-                speech_path = self.data_path / 'Speech' / 'train'
-            else:
-                speech_files = self.speech_files_test
-                speech_type = 'test'
-                speech_path = self.data_path / 'Speech' / 'test'
-
-            # Loop over all speech files for this split.
-            for speech_file in speech_files:
-                speech_name = Path(speech_file).stem
-                speech_data = self._load_and_normalize_audio(
-                    self._speech_file_path(speech_path, speech_file), duration=5.0
-                )
-
-                # 1. Always process the original RIR.
-                all_records.extend(self._process_entry(
-                    speech_data, rir_data, speech_name, rir_name, speech_type, 'original'
-                ))
-
-                # 2. If RIR is eligible for augmentation.
-                should_augment = not ('sintetica' in rir_name or not any(rir_name in s for s in self.to_augmentate))
-                if not should_augment:
-                    continue
-                
-                # 3. TR augmentation sweep.
-                for tr_var in self.tr_variations:
-                    try:
-                        rir_tr_aug = tr_augmentation(rir_data, self.fs, tr_var, self.bp_filter)
-                        rir_tr_aug /= np.max(np.abs(rir_tr_aug))
-                        
-                        aug_tag = f'TR_var_{tr_var:.2f}'
-                        all_records.extend(self._process_entry(
-                            speech_data, rir_tr_aug, speech_name, rir_name, speech_type, aug_tag
-                        ))
-
-                        # 4. Nested DRR augmentation (as in the multiprocessing version).
-                        if tr_var in random.sample(list(self.tr_variations), k=5):
-                            for drr_var in self.drr_variations:
-                                try:
-                                    rir_drr_aug = drr_aug(rir_tr_aug, self.fs, drr_var)
-                                    rir_drr_aug /= np.max(np.abs(rir_drr_aug))
-                                    
-                                    aug_tag = f'TR_{tr_var:.2f}_DRR_var_{drr_var:.2f}'
-                                    all_records.extend(self._process_entry(
-                                        speech_data, rir_drr_aug, speech_name, rir_name, speech_type, aug_tag
-                                    ))
-                                except Exception as e:
-                                    # print(f"DRR augmentation error {drr_var}: {e}")
-                                    continue
-                    except (TrAugmentationError, Exception) as e:
-                        # print(f"TR augmentation error {tr_var}: {e}")
-                        continue
-        
-        # --- DataFrame creation & save ---
+        for reason, count in sorted(discards.items()):
+            logger.info("Discarded %s: %d", reason, count)
         if not all_records:
-            print("No records were generated. The database is empty.")
+            logger.warning("No records were generated. The database is empty.")
             return None
-            
+
         final_db = pd.DataFrame(all_records)
         final_db.to_pickle(db_file)
-        print(f"Database generated and saved at: {db_file}")
-        
+        logger.info("Database generated and saved at: %s", db_file)
         return final_db

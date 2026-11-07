@@ -23,18 +23,25 @@ import glob
 
 
 class TrAugmentationError(Exception):
-    """Raised when TR augmentation fails for any reason (wrapper exception)."""
-    def __init__(self, *args):
-        if args:
-            self.message = args[0]
-        else:
-            self.message = None
+    """
+    Raised when the decay analysis of TR augmentation fails numerically.
+
+    Attributes
+    ----------
+    message : str or None
+        Description of the failure.
+    cause : str or None
+        Class name of the underlying exception (e.g. ``'IndexError'``), used to count
+        discards by reason.
+    """
+
+    def __init__(self, message=None, cause=None):
+        super().__init__(message)
+        self.message = message
+        self.cause = cause
 
     def __str__(self):
-        if self.message:
-            return 'MyCustomError, {0} '.format(self.message)
-        else:
-            return 'MyCustomError has been raised'
+        return f'TrAugmentationError: {self.message}' if self.message else 'TrAugmentationError'
 
 
 def get_audio_list(path, file_types=('.wav', '.WAV', '.flac', '.FLAC')):
@@ -282,10 +289,14 @@ def estim_params(late, cross_point, fs):
     return estim_params
 
 
-def curva_noiseless(t, Am, decay_rate):
+def curva_noiseless(t, Am, decay_rate, rng=None):
     """
-    Generate a stochastic exponential decay (unity-variance white noise * decay)."""
-    noise = np.random.normal(0, 1, len(t))
+    Generate a stochastic exponential decay (unity-variance white noise * decay).
+
+    ``rng`` is a ``numpy.random.Generator``; ``None`` uses NumPy's global state (legacy,
+    non-reproducible, see BUG-06).
+    """
+    noise = (np.random if rng is None else rng).normal(0, 1, len(t))
     modelo = Am * np.exp(-t / decay_rate) * noise
     return modelo
 
@@ -322,11 +333,11 @@ def cross_fade(señal_1, señal_2, fs, cross_point):
     return (señal_1 * ventana_atenuante) + (señal_2 * ventana_amplificadora)
 
 
-def noise_crossfade(rir, estim_params, cross_point, fs):
+def noise_crossfade(rir, estim_params, cross_point, fs, rng=None):
     """
     Replace late noise by crossfading with a modeled noiseless decay."""
     t = np.linspace(0, len(rir) / fs, len(rir))
-    rir_noiseless = curva_noiseless(t, estim_params['Am'], estim_params['decay_rate'])
+    rir_noiseless = curva_noiseless(t, estim_params['Am'], estim_params['decay_rate'], rng=rng)
     rir_denoised = cross_fade(rir, rir_noiseless, fs, cross_point)
     return rir_denoised
 
@@ -361,7 +372,7 @@ def augmentation(rir, estim_params, estim_fullband_decay, TR60_desired, fs):
     return rir_aug
 
 
-def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
+def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter, rng=None):
     """
     Full TR augmentation pipeline for a broadband RIR.
 
@@ -386,8 +397,11 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
     TR_DESEADO : float
         Desired reverberation time (seconds) to which the decay should be scaled.
     bp_filter : object
-        Bandpass filter bank object exposing a ``process`` method that returns
+        Bandpass filter bank object exposing a ``filter_signals`` method that returns
         an array shaped ``(n_bands, n_samples)``.
+    rng : numpy.random.Generator or None, default=None
+        Random source for the synthesized noiseless tails. Pass a seeded generator for a
+        reproducible result (BUG-06); ``None`` uses NumPy's global state (legacy).
 
     Returns
     -------
@@ -397,7 +411,11 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
     Raises
     ------
     TrAugmentationError
-        Wraps any underlying exception raised during augmentation.
+        Wraps the numerical failures of the decay analysis (e.g. ``IndexError`` when the
+        Lundeby interval search finds no valid range, ``RuntimeError`` from the envelope
+        filters, curve-fit failures). The original exception type is kept in ``.cause``.
+        Programming errors (``NameError``, ``TypeError``, ``AttributeError``, ``KeyError``)
+        are **not** wrapped, so they surface instead of being counted as discards (BUG-05).
     """
     try:
         rir_entrada = normalize_rir(rir_entrada)
@@ -411,7 +429,8 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
             rir_band_denoised = noise_crossfade(rir_bands[band, :],
                                                 parameters,
                                                 cross_point,
-                                                fs)
+                                                fs,
+                                                rng=rng)
             rir_band_augs[band, :] = augmentation(rir_band_denoised,
                                                    parameters,
                                                    estim_fullband_decay,
@@ -420,5 +439,7 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
         rir_aug = np.sum(rir_band_augs, axis=0)
         rir_aug = np.concatenate((delay, early, rir_aug)).astype(np.float32)
         return rir_aug
+    except (NameError, TypeError, AttributeError, KeyError):
+        raise  # programming errors must surface (BUG-05)
     except Exception as err:
-        raise TrAugmentationError(f'{err.__class__.__name__}: {err}')
+        raise TrAugmentationError(f'{err.__class__.__name__}: {err}', cause=err.__class__.__name__) from err

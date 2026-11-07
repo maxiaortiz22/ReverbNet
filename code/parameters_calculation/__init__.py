@@ -33,6 +33,7 @@ __all__ = [
     # DRR augmentation
     'drr_aug',
     'get_DRR',
+    'DrrAugmentationError',
     
     # TR augmentation
     'tr_augmentation',

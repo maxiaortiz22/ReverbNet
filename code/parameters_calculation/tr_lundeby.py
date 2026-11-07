@@ -36,8 +36,6 @@ class NoiseError(Exception):
             self.message = None
 
     def __str__(self):
-        # Debug message when stringifying the exception.
-        print('calling str')
         if self.message:
             return f'NoiseError: {self.message} '
         else:

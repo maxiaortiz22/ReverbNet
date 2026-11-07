@@ -81,6 +81,13 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 - `cache/` takes ~17 GB (4 databases of ~4.3 GB, the thesis/v0 caches without suffix). The cache
   name ends with `_dv<DATA_PIPELINE_VERSION>` (`code/generate_database.py`): **bump that constant**
   whenever a change alters the generated features or labels (CODE-05).
+- A complete database folder contains `generation_summary.json` (written last, with discards
+  by reason); `run.py` refuses folders without it (interrupted generation).
+- The generator only discards **expected** failures (Lundeby noise criterion, failed TR
+  analysis, unrealizable DRR) and counts them; any other exception stops the run on purpose.
+- `data/RIRs/` holds 468 real RIRs and 2900 synthetic ones (`sintetica_Seed<seed>_Tr<RT>.wav`,
+  reproducible from their names with `scripts/gen_synthetic_RIRs.py`). They are not in git:
+  keep a backup. Augmented RIRs are never stored as files; they exist only inside the caches.
 - `configs/exp1..4.py` write into `results/exp1..4` (baseline v0) and are kept untouched.
   New experiments use `configs/v1_base.py::make_config` (`exp5`/`exp6` and their
   leave-one-room-out folds); splits live in `code/splits.py`.

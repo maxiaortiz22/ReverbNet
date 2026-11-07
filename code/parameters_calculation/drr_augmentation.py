@@ -15,7 +15,15 @@ This module provides:
 with existing code; only comments, docstrings, and print messages are in English.
 """
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+class DrrAugmentationError(ValueError):
+    """Raised when a target DRR cannot be realized for a given RIR (expected discard)."""
 
 
 def get_DRR(rir, fs, window_length=0.0025):
@@ -82,12 +90,15 @@ def drr_aug(rir, fs, DRR_buscado, window_length=0.0025):
 
     Returns
     -------
-    numpy.ndarray or None
-        Normalized augmented RIR if successful; ``None`` if the requested DRR
-        cannot be realized.
+    numpy.ndarray
+        Normalized augmented RIR.
 
     Raises
     ------
+    DrrAugmentationError
+        If the requested DRR cannot be realized (no real scaling factor, or the scaled
+        early part would fall below the late tail). Previously this returned ``None``
+        or crashed on a typo (BUG-05).
     ValueError
         If the RIR is empty or if the late energy is zero.
     """
@@ -110,19 +121,19 @@ def drr_aug(rir, fs, DRR_buscado, window_length=0.0025):
 
     # Abort if no valid alpha (no real solution).
     if alpha is None:
-        print(f"Could not generate audio with DRR = {DRRR_buscado:.2f} dB. Skipping...")
-        return None
+        raise DrrAugmentationError(f"No real scaling factor reaches DRR = {DRR_buscado:.2f} dB")
 
     # Construct new early segment.
     new_early = (alpha * w * early) + ((1 - w) * early)
     if np.max(np.abs(new_early)) < np.max(np.abs(late)):
-        print("Desired level is too low; cannot generate audio.")
-        return None
+        raise DrrAugmentationError(
+            f"DRR = {DRR_buscado:.2f} dB would put the direct sound below the late tail"
+        )
 
     # Assemble augmented RIR and report achieved DRR.
     rir_aug = np.concatenate((delay, new_early, late)).astype(np.float32)
     DRR_obtenido = 10 * np.log10(np.sum(new_early**2) / energia_late)
-    print(f"Target DRR: {DRR_buscado:.2f}, obtained DRR: {DRR_obtenido:.2f}")
+    logger.debug("Target DRR: %.2f dB, obtained DRR: %.2f dB", DRR_buscado, DRR_obtenido)
 
     return rir_aug / np.max(np.abs(rir_aug))
 

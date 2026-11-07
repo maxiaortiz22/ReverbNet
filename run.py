@@ -9,7 +9,10 @@ from code import model, reshape_data, normalize_descriptors, prediction, descrip
 from code.splits import validation_mask
 import concurrent.futures
 import gc
+import json
+from collections import Counter
 from numpy import argmin
+from code.data_reader import GENERATION_SUMMARY
 from warnings import filterwarnings
 filterwarnings("ignore")  # Suppress non-critical warnings for cleaner console output.
 
@@ -96,31 +99,47 @@ def main(**kwargs):
     db_dir = database.cache_path / database.db_name      # e.g., cache/BD-TR08_SNR20
     chunk_size = 50_000                                  # records per pickle
 
-    if db_dir.exists() and any(db_dir.iterdir()):
+    # The summary file is written last, so it marks a complete database. A folder without
+    # it was interrupted mid-generation and must not be used (it used to be taken as done).
+    summary_path = db_dir / GENERATION_SUMMARY
+
+    if summary_path.exists():
         print(f"Database already exists at: {db_dir}")
+    elif db_dir.exists() and any(db_dir.iterdir()):
+        raise RuntimeError(
+            f"{db_dir} exists but has no {GENERATION_SUMMARY}: a previous generation was "
+            f"interrupted. Delete the folder and run again."
+        )
     else:
         print("Starting database generation with multiprocessing...")
         db_dir.mkdir(parents=True, exist_ok=True)        # create directory if needed
 
         chunk_records: list[dict] = []
         part_idx: int = 0
+        n_records: int = 0
+        discards: Counter = Counter()
+        n_rirs = len(config['files_rirs'])
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            # process_single_rir() is expected to return a list of dict records per RIR.
+            # process_single_rir() returns (records, discard counts) for one RIR.
             results_iter = executor.map(
                 database.process_single_rir,
                 config['files_rirs']
             )
 
-            for record_list in results_iter:
-                # Accumulate records from this RIR.
+            for n_done, (record_list, rir_discards) in enumerate(results_iter, start=1):
+                # Accumulate records and discard counts from this RIR.
                 chunk_records.extend(record_list)
+                n_records += len(record_list)
+                discards.update(rir_discards)
+                if n_done % 50 == 0 or n_done == n_rirs:
+                    print(f"  - {n_done}/{n_rirs} RIRs processed, {n_records} records")
 
                 # While we have at least chunk_size records → write and clear buffer slice.
                 while len(chunk_records) >= chunk_size:
                     df_part = pd.DataFrame(chunk_records[:chunk_size])
                     df_part.to_pickle(db_dir / f"{part_idx}.pkl")
-                    print(f"  ▸ Saved {part_idx}.pkl with {len(df_part)} rows")
+                    print(f"  - Saved {part_idx}.pkl with {len(df_part)} rows")
                     part_idx += 1
                     chunk_records = chunk_records[chunk_size:]  # drop written records
 
@@ -128,12 +147,25 @@ def main(**kwargs):
         if chunk_records:
             df_part = pd.DataFrame(chunk_records)
             df_part.to_pickle(db_dir / f"{part_idx}.pkl")
-            print(f"  ▸ Saved {part_idx}.pkl with {len(df_part)} remaining rows")
+            print(f"  - Saved {part_idx}.pkl with {len(df_part)} remaining rows")
+            part_idx += 1
 
-        if part_idx == 0 and not chunk_records:
+        # Discards by reason (BUG-05): units are band records or whole RIR variants.
+        print("Discarded items by reason:")
+        for reason, count in sorted(discards.items()):
+            print(f"  - {reason}: {count}")
+        summary_path.write_text(json.dumps({
+            'db_name': database.db_name,
+            'n_rirs': n_rirs,
+            'n_records': n_records,
+            'n_partitions': part_idx,
+            'discards': dict(sorted(discards.items())),
+        }, indent=2), encoding='utf-8')
+
+        if n_records == 0:
             print("Warning: no records were generated; database is empty.")
         else:
-            print(f"✅ Database generated in {db_dir} with {part_idx+1} files.")
+            print(f"Database generated in {db_dir} with {part_idx} files ({n_records} records).")
 
     # --- Memory cleanup of large generator object ---
     db_name = database.db_name  # retain db_name for subsequent loads

@@ -110,3 +110,24 @@ Entries in chronological order, most recent **at the end**. Absolute dates
 - With BUG-01 to BUG-04 done, the P0 items are closed. Next: decide whether to run baseline v1
   now or first fix BUG-05/BUG-06 (both change the generated data).
 - Test suite: 87 passing tests.
+
+## 2026-11-07 — BUG-05 / BUG-06 (+ CODE-01): explicit failures, reproducible augmentation
+
+- Surveyed which exceptions the generator was swallowing on the real data: only the Lundeby
+  noise criterion for descriptors, the `DRRR_buscado` typo for unrealizable DRR targets, and
+  numeric failures inside `tr_augmentation` (BUG-05 backlog entry).
+- Only those expected failures are now caught and counted by reason; everything else
+  propagates. Short speech files are zero-padded to 5 s (F5s3 and M8s3 are back).
+  `run.py` writes `generation_summary.json` last and refuses interrupted database folders.
+- Augmentation is reproducible from the project seed (`drr_subset`, `tr_tail` streams) and,
+  since it no longer varies per speech file, it is built once per RIR together with its
+  descriptors (CODE-01 done). Serial and multiprocess runs give identical records.
+  `DATA_PIPELINE_VERSION` → 5.
+- **Decision**: zero-pad short speech instead of rejecting it (realistic: the speaker stops
+  and the recording continues).
+- New findings, recorded as items:
+  - **BUG-09**: TR augmentation fails for 26 of the 45 selected real RIRs (`IndexError`).
+  - **DATA-10**: with `max_ruido_dB = -60` no real RIR survives at 125/250 Hz and ~40 % are lost
+    at 500 Hz–1 kHz; −45 dB (the ISO minimum for T30) keeps all of them from 500 Hz up.
+- Rough cost of a full v1 database after CODE-01: ~20–30 min on 8 cores (to be confirmed).
+- Test suite: 100 passing tests.

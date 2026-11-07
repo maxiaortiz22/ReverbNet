@@ -23,6 +23,8 @@ RNG_STREAMS = {
     'split': 2,       # per-file train/test assignment of synthetic RIRs (BUG-04)
     'validation': 3,  # per-RIR validation assignment within the training set (BUG-04)
     'augment': 4,     # choice of real RIRs to augment (BUG-04 configs)
+    'drr_subset': 5,  # TR variants of a RIR that also get DRR variants (BUG-06)
+    'tr_tail': 6,     # synthesized noiseless tail of a TR-augmented RIR (BUG-06)
 }
 
 
