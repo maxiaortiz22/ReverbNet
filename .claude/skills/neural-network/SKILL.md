@@ -19,16 +19,17 @@ description: Rules for writing, training and evaluating ReverbNet models (1D CNN
 
 ## Data rules for training
 
-1. **Group splits, never per-record splits** (BUG-04):
-   - Real RIRs: by **room** (great_hall / octagon / classroom). Main evaluation:
-     leave-one-room-out.
+1. **Group splits, never per-record splits** (BUG-04, implemented in `code/splits.py`):
+   - Real RIRs: by **room** (great_hall / octagon / classroom). Development split holds out
+     `classroom`; milestone baselines run leave-one-room-out folds.
    - Augmented RIRs: go to the same split as their source RIR.
-   - Speech: by **speaker** (the `F1`, `M3`… prefix of the filename).
-   - Validation: a separate group split, not Keras' `validation_split` (which takes the last
-     10 % of the records).
-   - Add a test that checks the groups are disjoint.
-2. **Target normalization** with statistics from **train only**, saved alongside the model
-   (JSON/pickle) and reused at inference. Prefer per-descriptor (and per-band) z-score.
+   - Synthetic RIRs: per file (20 % to test).
+   - Speech: by **speaker** (`F4`, `M4`, `M9` in test).
+   - Validation: `validation_mask` by source RIR (same decision in every band), passed as
+     `validation_data`. Never use Keras' `validation_split`.
+   - Any new split logic goes into `code/splits.py` with a disjointness test.
+2. **Target normalization** with statistics from **train only** (`normalize_descriptors(y_train,
+   y_val, y_test)`), saved with the results and reused at inference. Z-score is TRAIN-03.
 3. Model input produced by **the same function** used at inference (`dsp` skill).
 4. Physically linked descriptors: D50 is derived from C50 (DATA-01); check C80 ≥ C50.
 

@@ -81,8 +81,9 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 - `cache/` takes ~17 GB (4 databases of ~4.3 GB, the thesis/v0 caches without suffix). The cache
   name ends with `_dv<DATA_PIPELINE_VERSION>` (`code/generate_database.py`): **bump that constant**
   whenever a change alters the generated features or labels (CODE-05).
-- `configs/exp1..4.py` write into `results/exp1..4` (baseline v0). New runs need new configs
-  with a new `exp_num`.
+- `configs/exp1..4.py` write into `results/exp1..4` (baseline v0) and are kept untouched.
+  New experiments use `configs/v1_base.py::make_config` (`exp5`/`exp6` and their
+  leave-one-room-out folds); splits live in `code/splits.py`.
 - `data/RIRs/*.wav`, `cache/**/*.pkl` and `results/**/*.pickle` are in `.gitignore`.
 
 ## Conventions
@@ -91,7 +92,7 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
   tracking, commit messages) is written in **English**. Conversation with the maintainer
   may be in Spanish.
 - **Reproducibility**: the config's `seed` is the only seed of the project. Every random
-  process derives its own stream from it (`RNG_STREAMS` in `code/generate_database.py`); see
+  process derives its own stream from it (`RNG_STREAMS` and `item_rng` in `code/random_streams.py`); see
   the `python-code` skill.
 - Audio conventions: `fs = 16000`, mono, 5 s windows, bands
   `[125, 250, 500, 1000, 2000, 4000, 8000]`.

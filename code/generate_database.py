@@ -1,6 +1,7 @@
+import hashlib
+import json
 import os
 import random
-import zlib
 from datetime import datetime
 from math import nan
 from pathlib import Path
@@ -13,6 +14,7 @@ from scipy.signal import butter
 from .convolution import causal_convolve
 from .cpp import audio_processing
 from .mixing import mix_at_snr
+from .random_streams import RNG_STREAMS, item_rng  # noqa: F401 (RNG_STREAMS re-exported)
 from filters import BandpassFilter
 from .parameters_calculation import (TAE, NoiseError,
                                     TrAugmentationError,
@@ -27,13 +29,6 @@ from .parameters_calculation import (TAE, NoiseError,
 #   3: noise mixed broadband before the filter bank; one SNR per recording (BUG-03).
 #   4: random noise color, clean fraction and per-recording seeded noise (DATA-09).
 DATA_PIPELINE_VERSION = 4
-
-# One project-wide seed (the config's `seed`) feeds every random process. Each process
-# gets its own stream id so their draws are independent of each other; never reuse or
-# renumber an id, since that would change previously reproducible databases.
-RNG_STREAMS = {
-    'noise': 1,  # clean/noisy decision, noise color, SNR and noise realization (DATA-09)
-}
 
 
 class DataBaseGenerator:
@@ -78,7 +73,7 @@ class DataBaseGenerator:
             Probability that a recording is left noise-free.
         seed : int, default=0
             Project-wide seed (the config's ``seed``). Each random process derives its own
-            stream from it (see ``RNG_STREAMS``). For noise, the seed and the recording name
+            stream from it (see ``code/random_streams.py``). For noise, the seed and the recording name
             fully determine whether a recording is noisy, its color, its SNR and the noise
             realization, so the same configuration always yields the same noisy database,
             regardless of processing order or of which other files are included.
@@ -122,6 +117,7 @@ class DataBaseGenerator:
             f'snr_{self.snr[0]}_{self.snr[-1]}_'
             f'beta_{self.noise_beta[0]}_{self.noise_beta[1]}_'
             f'clean_{self.clean_fraction}_seed_{self.seed}_'
+            f'files_{self._file_lists_digest()}_'
             f'dv{DATA_PIPELINE_VERSION}'
         )
 
@@ -137,6 +133,38 @@ class DataBaseGenerator:
         audio_data, _ = load(file_path, sr=self.fs, duration=duration)
         max_val = np.max(np.abs(audio_data))
         return audio_data / max_val if max_val > 0 else audio_data
+
+    def _file_lists_digest(self) -> str:
+        """
+        Short digest of the file lists and of the train/test assignment.
+
+        The split is baked into the database (``type_data``) at generation time, so two
+        configs that differ only in their split (e.g. leave-one-room-out folds) must never
+        share a cache (BUG-04 / CODE-05).
+        """
+        payload = json.dumps(
+            {
+                'rirs_train': sorted(self.rirs_for_training),
+                'rirs_test': sorted(self.rirs_for_testing),
+                'speech_train': sorted(self.speech_files_train),
+                'speech_test': sorted(self.speech_files_test),
+                'augment': sorted(self.to_augmentate),
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha1(payload.encode('utf-8')).hexdigest()[:10]
+
+    def _speech_file_path(self, split_dir: Path, speech_file: str) -> Path:
+        """
+        Resolve a speech file entry from the config.
+
+        Entries with a folder (``'train/F1s3.wav'``, from ``splits.list_speech_files``) are
+        relative to ``data/Speech``, so a speaker-based split can pool both folders (BUG-04).
+        Bare names (``'F1s3.wav'``, v0 configs) are looked up in the split's own folder.
+        """
+        if Path(speech_file).parent != Path('.'):
+            return self.data_path / 'Speech' / speech_file
+        return split_dir / speech_file
 
     def _calculate_descriptors(self, rir_band: np.ndarray, rir_band_from_onset: np.ndarray) -> dict:
         """
@@ -166,11 +194,9 @@ class DataBaseGenerator:
         Seeded with ``(seed, RNG_STREAMS['noise'], crc32(recording_name))``: the draws depend
         only on the project seed and on the recording identity (``speech|rir|augmentation``),
         not on processing order, worker scheduling or which other files are in the database.
-        ``zlib.crc32`` is used because Python's ``hash`` is salted per process.
+        See ``code/random_streams.py``.
         """
-        return np.random.default_rng(
-            [self.seed, RNG_STREAMS['noise'], zlib.crc32(recording_name.encode('utf-8'))]
-        )
+        return item_rng(self.seed, 'noise', recording_name)
 
     def _draw_noise_settings(self, rng: np.random.Generator) -> tuple:
         """
@@ -278,7 +304,9 @@ class DataBaseGenerator:
         # --- Iterate over all speech files for this split ---
         for speech_file in speech_files:
             speech_name = Path(speech_file).stem
-            speech_data = self._load_and_normalize_audio(speech_path / speech_file, duration=5.0)
+            speech_data = self._load_and_normalize_audio(
+                self._speech_file_path(speech_path, speech_file), duration=5.0
+            )
 
             # 1. Always process the *original* RIR.
             records_for_this_rir.extend(self._process_entry(
@@ -431,7 +459,9 @@ class DataBaseGenerator:
             # Loop over all speech files for this split.
             for speech_file in speech_files:
                 speech_name = Path(speech_file).stem
-                speech_data = self._load_and_normalize_audio(speech_path / speech_file, duration=5.0)
+                speech_data = self._load_and_normalize_audio(
+                    self._speech_file_path(speech_path, speech_file), duration=5.0
+                )
 
                 # 1. Always process the original RIR.
                 all_records.extend(self._process_entry(

@@ -32,6 +32,18 @@ description: Workflow for running, recording and comparing ReverbNet experiments
   `clean_fraction = 0.2`. If `noise_beta`/`clean_fraction` are missing, `run.py` falls back to
   the legacy setup (always pink, no clean fraction), which is what the v0 configs exp1–4 use.
 
+## v1 configs
+
+- New experiments use `configs/v1_base.py::make_config(exp_num, add_noise, test_rooms=...)`;
+  each config file is three lines. Never copy the split logic into a config again.
+- `exp5` (clean) and `exp6` (noisy) hold out `classroom`. Their leave-one-room-out folds are
+  `exp5_great_hall`, `exp5_octagon`, `exp6_great_hall`, `exp6_octagon`, with string ids
+  (results in `results/exp5_octagon`, …; `summarize_results.py --exp 5 5_octagon` accepts them).
+- Report LORO metrics per fold and their mean; the development fold alone is for iterating.
+- Each fold builds its own database (the split is baked in): ~4.3 GB and hours per fold.
+- The cache name includes a digest of the file lists and split (`files_<sha1>`), so folds and
+  file changes never share a cache.
+
 ## Running
 
 ```bash

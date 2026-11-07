@@ -105,6 +105,34 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: group splits (room for real RIRs, source RIR for augmented ones, speaker
   for speech). Leave-one-room-out evaluation. Normalization fitted on train only.
 - **Acceptance**: split function with a test guaranteeing disjoint groups.
+- **Evidence** (2026-11-07): each real room has a very narrow T30 (500/1k mean, median and
+  p5–p95): great_hall 2.46 s (2.39–2.54), classroom 1.97 s (1.95–2.03), octagon ~3.1 s (few
+  octagon RIRs pass the −60 dB Lundeby criterion in mid bands). With positions of the same
+  room in train and test, a model can "recognize the room" instead of estimating its acoustics.
+- **Decisions** (maintainer): development split holds out `classroom`; milestone baselines run
+  leave-one-room-out (LORO, one fold per room). Test speakers `F4`, `M4`, `M9` (8 of 38 files).
+- **Resolution** (branch `fix/BUG-01-causal-convolution`):
+  - `code/splits.py`: group keys (`rir_group`, `speaker_of`, `recording_rir`),
+    `split_rirs` (by room; synthetic per file), `split_speech` (by speaker, pooling both
+    speech folders), `select_rirs_to_augment`, `validation_mask` (by source RIR, identical
+    for every band) and sorted listings. All random choices come from
+    `code/random_streams.py` (project seed + per-process stream).
+  - `run.py`: explicit validation split by source RIR (`validation_data` instead of
+    `validation_split`); targets normalized with the **training** 95th percentiles only
+    (`normalize_descriptors(y_train, y_val, y_test)`).
+  - Generator: speech entries may be paths relative to `data/Speech` (pooled folders).
+  - v1 configs: `configs/v1_base.py::make_config` + `exp5` (clean) and `exp6` (noisy), each
+    with LORO folds `*_great_hall` and `*_octagon` (results in `results/exp5_<room>` …).
+    The v0 configs `exp1`–`exp4` are untouched.
+  - Found while validating the configs: the cache name did not encode the split, so the LORO
+    folds would have silently reused the development-split database. The cache name now
+    includes a digest of the file lists and of the train/test assignment (`files_<sha1>`).
+  - Tests: `tests/test_splits.py` (disjoint rooms/speakers/RIRs, stability per item, fraction
+    checks, consistency across bands, train-only normalization, speech paths, cache name vs.
+    split). Checked separately that Keras 3 squeezes the `(n, 4, 1)` targets against the
+    `(n, 4)` output, so the MSE was computed correctly in v0 too.
+- **Cost note**: every LORO fold builds its own database (~4.3 GB, hours on CPU). Generating
+  all speech × RIR combinations once and splitting at read time would avoid that (see CODE-05).
 
 ### BUG-05 — Silenced exceptions
 - **Files**: `code/generate_database.py`, `code/parameters_calculation/drr_augmentation.py`.
@@ -137,6 +165,11 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   augmentation (TR subset, DRR subset, `curva_noiseless` tail) and derive generators from
   `(seed, stream, crc32(name))`. Still pending: `random.sample` per iteration, clock-based
   seed, `os.listdir` order in configs, global `np.random` in `tr_augmentation`.
+- **Progress** (2026-11-07, BUG-04): `RNG_STREAMS` moved to `code/random_streams.py`
+  (`item_rng`), with streams for `split`, `validation` and `augment`. The v1 configs use sorted
+  listings and seed-derived split/augmentation choices (verified: loading a config twice gives
+  identical lists). Still pending in the generator: per-iteration `random.sample`, the
+  clock-based `random.seed`, and global `np.random` in `tr_augmentation`.
 
 ### BUG-07 — Direct-sound detection with `argmax(rir)` without `abs`
 - **Files**: `drr_augmentation.py` (`get_DRR`, `drr_aug`), `tr_augmentation.py`
@@ -374,6 +407,11 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   `code/generate_database.py`, appended to the cache name as `_dv<N>`. It must be bumped by
   every change that alters generated features or labels. Version 0 = thesis caches (no suffix).
   Config de-duplication and hashing of the remaining parameters are still pending.
+- **Progress** (2026-11-07, BUG-04): the cache name includes `files_<sha1>`, a digest of the
+  RIR/speech file lists, the train/test assignment and the augmentation choice. New v1
+  configs share `configs/v1_base.py::make_config` (each experiment is three lines). Pending:
+  hash of the remaining parameters (bands, fs, filter order), and splitting at read time so
+  LORO folds can share one database.
 
 ### CODE-06 — Inference CLI
 - **Proposal**: `python -m reverbnet.predict audio.wav` → 5 s windows with VAD over the whole

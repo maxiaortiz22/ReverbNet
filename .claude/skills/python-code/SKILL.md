@@ -46,7 +46,7 @@ description: Conventions for writing and modifying Python code in ReverbNet (the
   second seed key to the configs.
 - No global `np.random.*` and no `random.seed(time)`. Pass an explicit
   `rng: np.random.Generator` parameter.
-- Each random process has its own stream id in `RNG_STREAMS` (`code/generate_database.py`).
+- Each random process has its own stream id in `RNG_STREAMS` (`code/random_streams.py`, helper `item_rng`).
   Derive per-item generators from the seed, the stream id and the item identity:
   `np.random.default_rng([seed, RNG_STREAMS['<process>'], zlib.crc32(item_name.encode())])`.
   This keeps draws independent of processing order, multiprocessing and the rest of the file

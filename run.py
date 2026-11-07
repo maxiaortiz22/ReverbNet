@@ -5,11 +5,11 @@ import pandas as pd
 from code import import_configs_objs
 from code import DataBaseGenerator
 from code import read_dataset
-from sklearn.model_selection import train_test_split
 from code import model, reshape_data, normalize_descriptors, prediction, descriptors_err, save_exp_data, create_early_stopping_callback
+from code.splits import validation_mask
 import concurrent.futures
 import gc
-from numpy import concatenate, argmin
+from numpy import argmin
 from warnings import filterwarnings
 filterwarnings("ignore")  # Suppress non-critical warnings for cleaner console output.
 
@@ -150,18 +150,22 @@ def main(**kwargs):
         db_train = read_dataset(band, db_name, config['sample_frac'], config['random_state'], type_data='train')
         db_test = read_dataset(band, db_name, config['sample_frac'], config['random_state'], type_data='test')
 
-        tae_train = list(db_train.tae.to_numpy())
-        tae_test = list(db_test.tae.to_numpy())
-        descriptors_train = list(db_train.descriptors.to_numpy())
-        descriptors_test = list(db_test.descriptors.to_numpy())
+        # Validation by source RIR (BUG-04): whole RIRs, with all their speech files and
+        # augmentations, go to validation. Keras' validation_split took the last records,
+        # so the same RIR was on both sides and early stopping was optimistic.
+        val_mask = validation_mask(db_train.ReverbedAudio, config['validation_split'], config['seed'])
+        db_val = db_train[val_mask]
+        db_train = db_train[~val_mask]
+        print(f"Records: train {len(db_train)}, validation {len(db_val)}, test {len(db_test)}")
 
-        # Split into train/test arrays and reshape for model input.
-        X_train, y_train = reshape_data(tae_train, descriptors_train)
-        X_test, y_test = reshape_data(tae_test, descriptors_test)
+        # Reshape for model input.
+        X_train, y_train = reshape_data(list(db_train.tae.to_numpy()), list(db_train.descriptors.to_numpy()))
+        X_val, y_val = reshape_data(list(db_val.tae.to_numpy()), list(db_val.descriptors.to_numpy()))
+        X_test, y_test = reshape_data(list(db_test.tae.to_numpy()), list(db_test.descriptors.to_numpy()))
 
-        # Normalize descriptor targets using the 95th percentile of each descriptor.
-        descriptors = concatenate((y_train, y_test), axis=0)
-        y_train, y_test, T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95 = normalize_descriptors(descriptors, y_train, y_test)
+        # Normalize targets with the 95th percentile of the training split only (BUG-04).
+        (y_train, y_val, y_test,
+         T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95) = normalize_descriptors(y_train, y_val, y_test)
 
         # Instantiate the model.
         blind_estimation_model = model(
@@ -176,7 +180,7 @@ def main(**kwargs):
         # Train the model.
         history = blind_estimation_model.fit(
             x=X_train, y=y_train,
-            validation_split=config['validation_split'],
+            validation_data=(X_val, y_val),
             batch_size=config['batch_size'],
             epochs=config['epochs'],
             callbacks=[early_stopping_callback]
@@ -202,8 +206,7 @@ def main(**kwargs):
         )
 
         # Delete large variables to free memory before next band iteration.
-        del db_train, db_test, tae_train, tae_test, descriptors, X_train, X_test, y_train, y_test
-        del descriptors_train, descriptors_test
+        del db_train, db_val, db_test, X_train, X_val, X_test, y_train, y_val, y_test
         del T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95
         del blind_estimation_model, history, predict, err_t30, err_c50, err_c80, err_d50
         gc.collect()

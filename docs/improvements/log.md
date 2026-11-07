@@ -94,3 +94,19 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   `noise_beta = [1.0, 2.0]`, `clean_fraction = 0.2` (to be set in the v1 configs).
 - `RNG_STREAMS` is the pattern for the rest of BUG-06 (augmentation draws).
 - Test suite: 57 passing tests.
+
+## 2026-11-07 — BUG-04: group-aware splits and v1 configs
+
+- **Decisions** (maintainer): development split holds out the `classroom` room; milestone
+  baselines run leave-one-room-out folds. Test speakers `F4`, `M4`, `M9`.
+- **Decision**: the v1 configs keep the thesis model and `max_ruido_dB = -60` (as exp1), so
+  baseline v1 isolates the effect of the data fixes.
+- Implemented `code/splits.py` and `code/random_streams.py`, explicit validation by source RIR
+  and train-only target normalization in `run.py`, pooled speech folders in the generator,
+  and `configs/v1_base.py` with `exp5` (clean) / `exp6` (noisy) plus their LORO folds.
+- Found and fixed while validating the configs: LORO folds would have shared one cache
+  because the cache name did not encode the split; it now includes a digest of the file lists.
+- Checked that Keras 3 handles the `(n, 4, 1)` targets correctly (no MSE broadcasting bug).
+- With BUG-01 to BUG-04 done, the P0 items are closed. Next: decide whether to run baseline v1
+  now or first fix BUG-05/BUG-06 (both change the generated data).
+- Test suite: 87 passing tests.
