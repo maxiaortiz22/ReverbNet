@@ -69,3 +69,15 @@ Entries in chronological order, most recent **at the end**. Absolute dates
 - The C++ `AudioProcessor` is no longer used (noted in CODE-03).
 - Corrected the speech counts in the tracking docs: 30 training files (not 33) and 8 test files.
 - Test suite: 42 passing tests.
+
+## 2026-11-07 — DATA-09 analysis (SNR range and definition)
+
+- Measured on 28 speech files × 8 real RIRs (details and tables in the DATA-09 backlog entry):
+  - Active-speech vs. whole-window SNR differ by only +0.3 dB (reverberation fills the
+    pauses), so the SNR definition does not need a VAD.
+  - The noise color, not the range, drives the per-band SNR: pink noise is a worst case for
+    2–8 kHz, while room noise (NC/NR-like) lies between pink and brown.
+  - In the dB domain, the TAE needs ~15 dB of band SNR to resemble the clean one (r ≥ 0.9).
+- Found while running it: `F5s3.wav` and `M8s3.wav` are shorter than 5 s and all their records
+  are silently dropped (evidence added to BUG-05).
+- Decision on the range/color pending with the maintainer (options a/b/c in the backlog).

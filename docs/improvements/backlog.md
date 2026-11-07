@@ -112,8 +112,14 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   Example: the `DRRR_buscado` typo (drr_augmentation.py, line 113) raises a `NameError`
   nobody sees. `drr_aug` returns `None` and then `None /= ...` fails. The `TAE` `assert` is
   swallowed too.
+- **Evidence** (2026-11-07): two training speech files are shorter than 5 s (`F5s3.wav`
+  4.69 s, `M8s3.wav` 4.05 s). Their TAE has fewer than 200 samples, the `assert` fails and
+  **every record built from them is silently dropped** (all RIRs, all bands, also in the v0
+  databases). The thesis models were effectively trained on 28 speech files, not 30.
 - **Proposal**: catch specific exceptions (`NoiseError`, `TrAugmentationError`,
-  `ValueError`), count discards by reason and log them with `logging`. Fix the typo.
+  `ValueError`), count discards by reason and log them with `logging`. Fix the typo. Bring
+  every speech signal to exactly 5 s with an explicit `fix_length` (zero-pad or crop) and log
+  it, or reject short files up front with a clear message.
 - **Acceptance**: summary of discards by reason at the end of generation.
 
 ### BUG-06 — Reproducibility
@@ -215,6 +221,45 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   consider defining the SNR over active speech only (VAD) or A-weighted, and add real noise
   spectra (DATA-07). Report metrics per `snr_band` bucket. Decide before generating the noisy
   variant of baseline v1.
+- **Analysis** (2026-11-07; 28 full-length training speech files × 8 real RIRs spread over the
+  3 rooms; script kept outside the repo, method described here):
+  1. *Definition*. Active-speech power (20 ms frames within 25 dB of the 95th-percentile
+     frame) vs. whole-window power: reverberation fills the pauses (93 % of frames active), so
+     `SNR_active − SNR_window` = +0.30 dB on average (p95 +0.84 dB). **A VAD-based definition
+     would change nothing in practice**; the whole-window definition can stay.
+  2. *Noise color dominates the per-band SNR*. Band SNR − broadband SNR (mean, dB) for noise
+     with power density ∝ 1/f^β:
+
+     | Band [Hz] | white β=0 | pink β=1 | β=1.5 | brown β=2 |
+     | --- | --- | --- | --- | --- |
+     | 125 | +9.5 | +2.3 | +10.0 | +21.8 |
+     | 250 | +11.2 | +6.9 | +16.2 | +29.4 |
+     | 500 | +9.3 | +8.1 | +18.9 | +33.6 |
+     | 1000 | −3.4 | −1.7 | +10.7 | +26.9 |
+     | 2000 | −12.5 | −7.7 | +6.1 | +23.8 |
+     | 4000 | −21.7 | −14.0 | +1.4 | +20.5 |
+     | 8000 | −28.4 | −18.5 | −2.0 | +18.1 |
+
+     Pink noise has equal energy per octave; typical room background noise (HVAC, traffic,
+     NC/NR-like spectra) falls with frequency per octave, i.e. lies between pink and brown.
+     Always using pink noise is therefore a worst case for 2–8 kHz.
+  3. *How much band SNR the TAE needs*. Pearson correlation between the clean and the noisy
+     TAE of the same band, with noise at a controlled per-band SNR (n = 38 recordings per cell):
+
+     | Band SNR | −5 dB | 0 dB | +5 dB | +10 dB | +15 dB | +20 dB | +30 dB |
+     | --- | --- | --- | --- | --- | --- | --- | --- |
+     | linear TAE (range over bands) | 0.46–0.93 | 0.75–0.97 | 0.91–0.99 | 0.97–1.00 | ≥ 0.99 | 1.00 | 1.00 |
+     | TAE in dB, −60 dB floor (range over bands) | 0.45–0.50 | 0.59–0.65 | 0.75–0.79 | 0.85–0.88 | 0.91–0.93 | 0.95–0.96 | 0.99 |
+
+     The linear correlation is dominated by speech peaks and is optimistic. In dB, which reflects
+     the low-level decay that encodes T30, the TAE only resembles the clean one (r ≥ 0.9) from
+     **~15 dB of band SNR**, and needs ~20 dB for r ≥ 0.95. Below ~5 dB it is mostly noise.
+- **Options**:
+  - (a) Keep pink noise and `[-5, 20]` dB: 4–8 kHz bands at −24…+6 dB, mostly unusable for the
+    decay; a large part of the noisy database becomes noise.
+  - (b) Randomize the noise color per recording (β ∈ [1, 2], pink to brown) and use a broadband
+    range of `[0, 40]` dB: every band spans from hard (< 5 dB) to clean (> 30 dB) cases.
+  - (c) Option (b) plus a fraction of noise-free recordings (thesis future work, DATA-07).
 
 ---
 
