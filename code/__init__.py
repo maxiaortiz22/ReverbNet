@@ -16,6 +16,9 @@ from .model import (
     save_exp_data,
 )
 
+# Re-export signal helpers shared by data generation and inference.
+from .convolution import causal_convolve
+
 # Re-export database generation and reading utilities.
 from .generate_database import DataBaseGenerator
 from .data_reader import read_dataset
@@ -33,6 +36,7 @@ __all__ = [
     'prediction',
     'descriptors_err',
     'save_exp_data',
+    'causal_convolve',
     'DataBaseGenerator',
     'read_dataset',
     'import_configs_objs',

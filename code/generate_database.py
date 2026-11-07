@@ -7,14 +7,21 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from librosa import load
-from scipy.signal import butter, fftconvolve
+from scipy.signal import butter
 
+from .convolution import causal_convolve
 from .cpp import audio_processing
 from filters import BandpassFilter
 from .parameters_calculation import (TAE, NoiseError,
                                     TrAugmentationError,
                                     drr_aug, get_DRR, pink_noise,
                                     tr_augmentation, tr_lundeby)
+
+# Version of the data-generation pipeline. Bump it whenever a change alters the
+# generated features (TAE) or labels (descriptors), so that a stale cache built by
+# older code is never reused. Version 0 = thesis pipeline (cache names without suffix).
+#   1: causal convolution instead of mode='same' (BUG-01).
+DATA_PIPELINE_VERSION = 1
 
 
 class DataBaseGenerator:
@@ -73,7 +80,8 @@ class DataBaseGenerator:
             f'data_base_{self.max_ruido_dB}_noise_{self.add_noise}_'
             f'traug_{"_".join(map(str, self.tr_aug_params))}_'
             f'drraug_{"_".join(map(str, self.drr_aug_params))}_'
-            f'snr_{self.snr[0]}_{self.snr[-1]}'
+            f'snr_{self.snr[0]}_{self.snr[-1]}_'
+            f'dv{DATA_PIPELINE_VERSION}'
         )
 
         # --- Pre‑compute supporting filters / variation ranges ---
@@ -234,7 +242,9 @@ class DataBaseGenerator:
         list of dict
             Records suitable for DataFrame construction.
         """
-        reverbed_audio = fftconvolve(speech_data, rir_data, mode='same')
+        # Causal convolution truncated to the speech length, emulating a recording window
+        # (BUG-01: mode='same' shifted the output by (len(rir)-1)//2 samples).
+        reverbed_audio = causal_convolve(speech_data, rir_data)
         reverbed_audio /= np.max(np.abs(reverbed_audio))
 
         filtered_speech_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))

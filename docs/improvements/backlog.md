@@ -20,6 +20,15 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   function for training and inference.
 - **Acceptance**: test checking causal alignment (impulse at t=0 → output = RIR);
   regenerated database; v0 vs v1 comparison in `experiments.md`.
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): new shared helper
+  `code/convolution.py::causal_convolve` (full convolution truncated to `len(signal)`), used by
+  `DataBaseGenerator._process_entry` and exported from the package for inference.
+  `tests/test_convolution.py` covers impulse alignment, delay, output length, equivalence with
+  `np.convolve`, and a regression test showing that the output no longer depends on the RIR
+  length (the old `mode='same'` fails it). The cache name now carries `_dv1` (see CODE-05) so
+  the v0 caches are not reused. Smoke-tested on a real speech file with a measured and a
+  synthetic RIR. **Pending**: regenerating the database and measuring the impact, deferred to
+  baseline v1 (phase 3) so all P0 fixes are evaluated together.
 
 ### BUG-02 — C50/C80/D50 integrate from sample 0 instead of the direct sound
 - **Files**: `code/generate_database.py` (`_calculate_descriptors`),
@@ -219,6 +228,10 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   include bands, fs, filter order, speech list or code version → risk of reusing a stale cache.
 - **Proposal**: move split logic into the code; declarative configs (YAML/dataclass) holding
   only the differences; cache name = hash of the parameters that affect it.
+- **Progress** (2026-11-07, BUG-01 branch): `DATA_PIPELINE_VERSION` in
+  `code/generate_database.py`, appended to the cache name as `_dv<N>`. It must be bumped by
+  every change that alters generated features or labels. Version 0 = thesis caches (no suffix).
+  Config de-duplication and hashing of the remaining parameters are still pending.
 
 ### CODE-06 — Inference CLI
 - **Proposal**: `python -m reverbnet.predict audio.wav` → 5 s windows with VAD over the whole
@@ -227,6 +240,9 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 ### CODE-07 — Tests and CI
 - **Proposal**: `tests/` with pytest: analytic descriptor cases (ideal exponential),
   convolution alignment, disjoint splits, TAE shape. GitHub Actions.
+- **Progress** (2026-11-07, BUG-01 branch): pytest 9.2.0 installed in the `ReverbNet` env;
+  `tests/conftest.py` (sys.path workaround until CODE-04) and `tests/test_convolution.py`.
+  Pending: add pytest to the dependency files, descriptor/TAE/split tests, CI.
 
 ### CODE-08 — Dependencies and README
 - **Problem**: `numpy` unpinned with TF 2.16 (requires numpy < 2); dependencies unused by the

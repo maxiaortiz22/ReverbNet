@@ -27,3 +27,17 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   analysis, related to RES-04) and a change to `notebooks/exp2.ipynb`.
 - **Decision**: all repository content (code, docstrings, comments, docs, skills, tracking,
   commit messages) is written in **English** for consistency with the rest of the repo.
+
+## 2026-11-07 — BUG-01: causal convolution
+
+- Replaced `fftconvolve(speech, rir, mode='same')` with `causal_convolve` (full convolution
+  truncated to the speech length) in `code/convolution.py`, used by the database generator.
+  Closes BUG-01 at code level.
+- Added `DATA_PIPELINE_VERSION = 1` to the cache name (`_dv1`) so the thesis caches (v0) are
+  kept for comparison and never reused by the fixed pipeline (partial CODE-05).
+- Started the test suite: pytest installed in the `ReverbNet` env, `tests/` with 11 passing
+  tests (partial CODE-07).
+- **Decision**: do not regenerate the database or retrain after each bug. The database will
+  be regenerated once all P0 bugs (BUG-01 to BUG-04) are fixed, and that run becomes
+  baseline v1. Running `configs/exp1..4.py` now would build a `_dv1` cache but write into
+  `results/exp1..4` and overwrite the v0 artifacts, so v1 needs new configs with new `exp_num`.

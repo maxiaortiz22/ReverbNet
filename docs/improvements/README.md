@@ -36,7 +36,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 
 | ID | Title | Priority | Phase | Status | Branch / PR |
 | --- | --- | --- | --- | --- | --- |
-| BUG-01 | `mode='same'` convolution shifts the signal and leaks the RT | P0 | 1 | todo | |
+| BUG-01 | `mode='same'` convolution shifts the signal and leaks the RT | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
 | BUG-02 | C50/C80/D50 integrate from sample 0 instead of the direct sound | P0 | 1 | todo | |
 | BUG-03 | Pink noise added after the filter bank and unfiltered | P0 | 1 | todo | |
 | BUG-04 | Train/val/test leakage (normalization, per-record validation, shared rooms and speakers) | P0 | 1 | todo | |
@@ -64,9 +64,9 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | CODE-02 | Efficient per-band storage format (npz/HDF5/parquet) | P1 | 2 | todo | |
 | CODE-03 | Decide the future of the C++ extension | P2 | 2 | todo | |
 | CODE-04 | Installable `reverbnet` package with `pyproject.toml` | P1 | 2 | todo | |
-| CODE-05 | De-duplicated configs and config-hashed cache | P1 | 2 | todo | |
+| CODE-05 | De-duplicated configs and config-hashed cache | P1 | 2 | in progress | `fix/BUG-01-causal-convolution` (cache versioning only) |
 | CODE-06 | Inference CLI `predict.py` (windows + VAD + aggregation) | P1 | 4 | todo | |
-| CODE-07 | pytest tests (analytic cases) and CI | P1 | 2 | todo | |
+| CODE-07 | pytest tests (analytic cases) and CI | P1 | 2 | in progress | `fix/BUG-01-causal-convolution` (pytest + first tests) |
 | CODE-08 | Pinned and cleaned-up dependencies; updated README | P2 | 2 | todo | |
 | CODE-09 | Remove duplicated code (serial generator, functions copied into notebooks) | P2 | 2 | todo | |
 | RES-01 | Predict the per-band EDC and derive all descriptors | P3 | 5 | todo | |

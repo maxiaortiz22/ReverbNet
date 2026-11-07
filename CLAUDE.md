@@ -49,7 +49,7 @@ tracking (`improvement-tracking` skill).
   librosa 0.11.0, pandas 2.3.0, TensorFlow 2.16.1). There is also a `ReverbNetTest` env.
 - Env interpreter: `C:/Users/maxia/anaconda3/envs/ReverbNet/python.exe`.
 - **TF sees no GPU** (native Windows, TF ≥ 2.11): training runs on CPU (TRAIN-06).
-- `pytest` is not installed yet (CODE-07).
+- `pytest` is installed in the env but not yet listed in the dependency files (CODE-07).
 - The compiled C++ extension lives at `code/cpp/build/Release/audio_processing.cp312-win_amd64.pyd`.
 
 ## Commands
@@ -58,6 +58,7 @@ tracking (`improvement-tracking` skill).
 git submodule update --init --recursive      # pybind11
 python build.py                              # build the C++ extension (Windows, CMake)
 python scripts/test_compilation.py           # smoke test for the extension
+python -m pytest -q tests                    # unit tests
 python run.py --config configs/exp1.py       # build the database (if not cached) and train all 7 bands
 python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 ```
@@ -76,8 +77,11 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
   for compatibility with the checkpoints in `results/`.
 - Data generation uses `ProcessPoolExecutor` (spawn on Windows): everything passed to workers
   must be picklable and the entry point needs `if __name__ == "__main__":`.
-- `cache/` takes ~17 GB (4 databases of ~4.3 GB). The cache name does **not** include the code
-  version: if generation changes, the cache must be deleted or renamed (CODE-05).
+- `cache/` takes ~17 GB (4 databases of ~4.3 GB, the thesis/v0 caches without suffix). The cache
+  name ends with `_dv<DATA_PIPELINE_VERSION>` (`code/generate_database.py`): **bump that constant**
+  whenever a change alters the generated features or labels (CODE-05).
+- `configs/exp1..4.py` write into `results/exp1..4` (baseline v0). New runs need new configs
+  with a new `exp_num`.
 - `data/RIRs/*.wav`, `cache/**/*.pkl` and `results/**/*.pickle` are in `.gitignore`.
 
 ## Conventions
