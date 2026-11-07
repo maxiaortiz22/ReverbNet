@@ -58,7 +58,8 @@ code/cpp/
   throw (today `ClarityCalculator` assumes `t < size()`).
 - Guard divisions and `log10` with an epsilon, as in Python.
 - Accumulate energies in `double`.
-- The integration start index (direct-sound onset) is a parameter, never assumed to be 0 (BUG-02).
+- Never assume the direct sound is at index 0 (BUG-02): callers pass the RIR already trimmed
+  with `trim_to_onset`, or new functions take the onset index as an explicit parameter.
 
 ## Equivalence with Python
 

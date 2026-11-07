@@ -43,6 +43,34 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   `room-acoustics` skill.
 - **Acceptance**: analytic tests (ideal exponential with a pre-delay → same C50 as without
   the delay); recomputed C50/D50 distributions compared against v0.
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): new
+  `code/parameters_calculation/onset.py` with `find_onset` (first sample ≥ peak − 20 dB,
+  polarity-independent) and `trim_to_onset`. `DataBaseGenerator._process_entry` detects the
+  onset on the broadband RIR, filters the trimmed RIR and passes it to C50/C80/D50. T30 and DRR
+  intentionally keep their v0 definitions (band-peak referenced) so the change is isolated.
+  `DATA_PIPELINE_VERSION` → 2. `tests/test_onset.py`: onset detection cases, analytic values
+  for T = 1 s with a 33 ms pre-delay (C50 ≈ −0.02 dB, C80 ≈ 3.05 dB, D50 ≈ 49.9 %), and
+  generator-level invariance to the pre-delay.
+- **Measured impact** (new − old, per band; mean and p5 to p95). Real RIRs (n = 468, onset
+  median 24.7 ms, range 7.8–50.8 ms):
+
+  | Band [Hz] | ΔC50 [dB] | ΔC80 [dB] | ΔD50 [%] |
+  | --- | --- | --- | --- |
+  | 125 | +4.80 (+0.31 to +18.32) | +2.41 (+0.18 to +6.64) | +7.64 (+0.95 to +19.83) |
+  | 250 | +4.57 (+0.09 to +18.65) | +2.90 (+0.13 to +8.57) | +10.69 (+0.43 to +31.92) |
+  | 500 | +2.95 (+0.10 to +12.21) | +2.08 (+0.13 to +5.50) | +8.57 (+0.49 to +26.89) |
+  | 1000 | +2.43 (+0.12 to +7.21) | +1.81 (+0.19 to +4.23) | +9.79 (+0.56 to +34.37) |
+  | 2000 | +2.26 (+0.08 to +6.26) | +1.80 (+0.16 to +3.84) | +10.49 (+0.38 to +34.21) |
+  | 4000 | +2.08 (+0.09 to +5.59) | +1.77 (+0.26 to +3.54) | +10.30 (+0.25 to +31.03) |
+  | 8000 | +1.89 (−0.08 to +5.50) | +1.72 (+0.11 to +3.44) | +9.19 (−0.21 to +28.12) |
+
+  Synthetic RIRs (n = 194, every 15th file): onset ≤ 0.2 ms, all changes ≤ 0.03 dB / 0.13 %.
+  So in v0 the real (and real-derived augmented) RIRs had C50/C80/D50 labels biased low by
+  well over one JND, while synthetic labels were correct: the training set mixed two
+  inconsistent label definitions. The field references (REW) are onset-referenced, so this
+  also affected the thesis field comparison.
+- **Pending**: the effect on model metrics is measured with baseline v1 (phase 3). The
+  band-filter group delay at low frequencies is still present (DATA-08).
 
 ### BUG-03 — Pink noise added after the filter bank and unfiltered
 - **Files**: `code/generate_database.py` (`_get_tae_with_noise`).

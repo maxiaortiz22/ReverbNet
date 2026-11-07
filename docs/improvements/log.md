@@ -41,3 +41,15 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   be regenerated once all P0 bugs (BUG-01 to BUG-04) are fixed, and that run becomes
   baseline v1. Running `configs/exp1..4.py` now would build a `_dv1` cache but write into
   `results/exp1..4` and overwrite the v0 artifacts, so v1 needs new configs with new `exp_num`.
+
+## 2026-11-07 — BUG-02: onset-referenced energy ratios
+
+- Added `find_onset` / `trim_to_onset` (`code/parameters_calculation/onset.py`) and used the
+  broadband onset for C50/C80/D50 in the database generator. `DATA_PIPELINE_VERSION` → 2.
+- **Decision**: T30 and DRR keep their v0 definitions (referenced to the band peak) to isolate
+  this change; revisiting them belongs to DATA-08 / BUG-07.
+- Measured on all 468 real RIRs: C50 was biased low by +1.9 to +4.8 dB on average per band
+  (up to +18 dB at p95 in low bands), C80 by +1.7 to +2.9 dB, D50 by +7.6 to +10.7 %.
+  Synthetic RIRs are unaffected (onset at 0). Details in the BUG-02 entry of the backlog.
+- Test suite: 26 passing tests. In sandboxed sessions the default pytest temp dir may not be
+  writable; use `--basetemp=<writable dir>`.

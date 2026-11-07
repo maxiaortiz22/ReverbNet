@@ -13,7 +13,8 @@ Current pipeline:
    Great Hall, Octagon and Classroom + 2900 synthetic `sintetica_*`), with RT and DRR
    augmentation on a subset of the real RIRs.
 2. Octave filter bank (`code/filters.py`, scipy SOS Butterworth).
-3. Descriptors of each band-filtered RIR (Lundeby + Schroeder for T30; C50/C80/D50 in C++).
+3. Descriptors of each band-filtered RIR (Lundeby + Schroeder for T30; C50/C80/D50 in C++,
+   integrated from the broadband direct-sound onset since data pipeline v2).
 4. Per-band TAE of the reverberant speech (Hilbert → 20 Hz low-pass → 40 Hz → 200 samples).
 5. One 1D CNN per band (TF/Keras) predicting the 4 descriptors normalized by their p95.
 
@@ -58,7 +59,7 @@ tracking (`improvement-tracking` skill).
 git submodule update --init --recursive      # pybind11
 python build.py                              # build the C++ extension (Windows, CMake)
 python scripts/test_compilation.py           # smoke test for the extension
-python -m pytest -q tests                    # unit tests
+python -m pytest -q tests                    # unit tests (add --basetemp=<dir> if the temp dir is not writable)
 python run.py --config configs/exp1.py       # build the database (if not cached) and train all 7 bands
 python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 ```

@@ -14,14 +14,15 @@ from .cpp import audio_processing
 from filters import BandpassFilter
 from .parameters_calculation import (TAE, NoiseError,
                                     TrAugmentationError,
-                                    drr_aug, get_DRR, pink_noise,
+                                    drr_aug, find_onset, get_DRR, pink_noise,
                                     tr_augmentation, tr_lundeby)
 
 # Version of the data-generation pipeline. Bump it whenever a change alters the
 # generated features (TAE) or labels (descriptors), so that a stale cache built by
 # older code is never reused. Version 0 = thesis pipeline (cache names without suffix).
 #   1: causal convolution instead of mode='same' (BUG-01).
-DATA_PIPELINE_VERSION = 1
+#   2: C50/C80/D50 integrated from the direct-sound onset (BUG-02).
+DATA_PIPELINE_VERSION = 2
 
 
 class DataBaseGenerator:
@@ -97,12 +98,24 @@ class DataBaseGenerator:
         max_val = np.max(np.abs(audio_data))
         return audio_data / max_val if max_val > 0 else audio_data
 
-    def _calculate_descriptors(self, rir_band: np.ndarray) -> dict:
-        """Compute acoustic descriptors (T30, C50, C80, D50, DRR) for a single‑band RIR."""
+    def _calculate_descriptors(self, rir_band: np.ndarray, rir_band_from_onset: np.ndarray) -> dict:
+        """
+        Compute acoustic descriptors (T30, C50, C80, D50, DRR) for a single band.
+
+        Parameters
+        ----------
+        rir_band : ndarray
+            Band-filtered RIR, including any pre-delay. Used for T30 (Lundeby windows
+            from the band peak) and DRR, which keep their original definitions.
+        rir_band_from_onset : ndarray
+            Band-filtered RIR trimmed at the broadband direct-sound onset. Used for the
+            energy ratios C50, C80 and D50, which ISO 3382-1 integrates from the direct
+            sound (BUG-02).
+        """
         t30, _, _ = tr_lundeby(rir_band, self.fs, self.max_ruido_dB)
-        c50 = audio_processing.ClarityCalculator.calculate(50, rir_band, self.fs)
-        c80 = audio_processing.ClarityCalculator.calculate(80, rir_band, self.fs)
-        d50 = audio_processing.DefinitionCalculator.calculate(rir_band, self.fs)
+        c50 = audio_processing.ClarityCalculator.calculate(50, rir_band_from_onset, self.fs)
+        c80 = audio_processing.ClarityCalculator.calculate(80, rir_band_from_onset, self.fs)
+        d50 = audio_processing.DefinitionCalculator.calculate(rir_band_from_onset, self.fs)
         drr, _, _ = get_DRR(rir_band, self.fs)
         return {'T30': t30, 'C50': c50, 'C80': c80, 'D50': d50, 'DRR': drr}
         
@@ -249,13 +262,21 @@ class DataBaseGenerator:
 
         filtered_speech_bands = self.bp_filter.filter_signals(reverbed_audio.astype(np.float32))
         filtered_rir_bands = self.bp_filter.filter_signals(rir_data.astype(np.float32))
-        
+        # Energy ratios are integrated from the broadband direct-sound onset, shared by
+        # all bands (BUG-02). The RIR is trimmed before filtering.
+        onset = find_onset(rir_data)
+        filtered_rir_bands_from_onset = self.bp_filter.filter_signals(
+            rir_data[onset:].astype(np.float32)
+        )
+
         entry_records = []
         name = f'{speech_name}|{rir_name}|{aug_tag}'
 
         for i, band in enumerate(self.bands):
             try:
-                descriptors = self._calculate_descriptors(filtered_rir_bands[i])
+                descriptors = self._calculate_descriptors(
+                    filtered_rir_bands[i], filtered_rir_bands_from_onset[i]
+                )
                 tae, snr = self._get_tae_with_noise(filtered_speech_bands[i])
 
                 record = {

@@ -37,7 +37,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | ID | Title | Priority | Phase | Status | Branch / PR |
 | --- | --- | --- | --- | --- | --- |
 | BUG-01 | `mode='same'` convolution shifts the signal and leaks the RT | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
-| BUG-02 | C50/C80/D50 integrate from sample 0 instead of the direct sound | P0 | 1 | todo | |
+| BUG-02 | C50/C80/D50 integrate from sample 0 instead of the direct sound | P0 | 1 | done | `fix/BUG-01-causal-convolution` |
 | BUG-03 | Pink noise added after the filter bank and unfiltered | P0 | 1 | todo | |
 | BUG-04 | Train/val/test leakage (normalization, per-record validation, shared rooms and speakers) | P0 | 1 | todo | |
 | BUG-05 | Silenced exceptions (`except Exception: continue`) and `DRRR_buscado` typo | P1 | 1 | todo | |
