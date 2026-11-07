@@ -36,7 +36,9 @@ Always in **physical units** (de-normalize with the saved statistics) and with *
 | % within JND | Perceptual relevance (T30 5 % rel., C50/C80 1 dB, D50 5 %). |
 
 Mandatory breakdowns: by **band**, by **descriptor**, by **RIR type** (real / synthetic /
-augmented, from the `speech|rir|tag` name) and, once group splits exist, by **room**. Bands
+augmented, from the `speech|rir|tag` name) and, once group splits exist, by **room**. For noisy
+databases (data pipeline v3+), also by **per-band SNR** bucket (`snr_band`); `snr` is the
+broadband SNR of the recording. Bands
 always ordered 125 → 8000 Hz.
 
 ## Plots

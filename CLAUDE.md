@@ -13,7 +13,8 @@ Current pipeline:
    Great Hall, Octagon and Classroom + 2900 synthetic `sintetica_*`), with RT and DRR
    augmentation on a subset of the real RIRs.
 2. Octave filter bank (`code/filters.py`, scipy SOS Butterworth).
-3. Descriptors of each band-filtered RIR (Lundeby + Schroeder for T30; C50/C80/D50 in C++).
+3. Descriptors of each band-filtered RIR (Lundeby + Schroeder for T30; C50/C80/D50 in C++,
+   integrated from the broadband direct-sound onset since data pipeline v2).
 4. Per-band TAE of the reverberant speech (Hilbert → 20 Hz low-pass → 40 Hz → 200 samples).
 5. One 1D CNN per band (TF/Keras) predicting the 4 descriptors normalized by their p95.
 
@@ -49,7 +50,7 @@ tracking (`improvement-tracking` skill).
   librosa 0.11.0, pandas 2.3.0, TensorFlow 2.16.1). There is also a `ReverbNetTest` env.
 - Env interpreter: `C:/Users/maxia/anaconda3/envs/ReverbNet/python.exe`.
 - **TF sees no GPU** (native Windows, TF ≥ 2.11): training runs on CPU (TRAIN-06).
-- `pytest` is not installed yet (CODE-07).
+- `pytest` is installed in the env but not yet listed in the dependency files (CODE-07).
 - The compiled C++ extension lives at `code/cpp/build/Release/audio_processing.cp312-win_amd64.pyd`.
 
 ## Commands
@@ -58,6 +59,7 @@ tracking (`improvement-tracking` skill).
 git submodule update --init --recursive      # pybind11
 python build.py                              # build the C++ extension (Windows, CMake)
 python scripts/test_compilation.py           # smoke test for the extension
+python -m pytest -q tests                    # unit tests (add --basetemp=<dir> if the temp dir is not writable)
 python run.py --config configs/exp1.py       # build the database (if not cached) and train all 7 bands
 python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 ```
@@ -76,8 +78,19 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
   for compatibility with the checkpoints in `results/`.
 - Data generation uses `ProcessPoolExecutor` (spawn on Windows): everything passed to workers
   must be picklable and the entry point needs `if __name__ == "__main__":`.
-- `cache/` takes ~17 GB (4 databases of ~4.3 GB). The cache name does **not** include the code
-  version: if generation changes, the cache must be deleted or renamed (CODE-05).
+- `cache/` takes ~17 GB (4 databases of ~4.3 GB, the thesis/v0 caches without suffix). The cache
+  name ends with `_dv<DATA_PIPELINE_VERSION>` (`code/generate_database.py`): **bump that constant**
+  whenever a change alters the generated features or labels (CODE-05).
+- A complete database folder contains `generation_summary.json` (written last, with discards
+  by reason); `run.py` refuses folders without it (interrupted generation).
+- The generator only discards **expected** failures (Lundeby noise criterion, failed TR
+  analysis, unrealizable DRR) and counts them; any other exception stops the run on purpose.
+- `data/RIRs/` holds 468 real RIRs and 2900 synthetic ones (`sintetica_Seed<seed>_Tr<RT>.wav`,
+  reproducible from their names with `scripts/gen_synthetic_RIRs.py`). They are not in git:
+  keep a backup. Augmented RIRs are never stored as files; they exist only inside the caches.
+- `configs/exp1..4.py` write into `results/exp1..4` (baseline v0) and are kept untouched.
+  New experiments use `configs/v1_base.py::make_config` (`exp5`/`exp6` and their
+  leave-one-room-out folds); splits live in `code/splits.py`.
 - `data/RIRs/*.wav`, `cache/**/*.pkl` and `results/**/*.pickle` are in `.gitignore`.
 
 ## Conventions
@@ -85,6 +98,9 @@ python scripts/summarize_results.py --exp 1  # metrics table for experiments.md
 - **Language**: everything in the repository (code, docstrings, comments, docs, skills,
   tracking, commit messages) is written in **English**. Conversation with the maintainer
   may be in Spanish.
+- **Reproducibility**: the config's `seed` is the only seed of the project. Every random
+  process derives its own stream from it (`RNG_STREAMS` and `item_rng` in `code/random_streams.py`); see
+  the `python-code` skill.
 - Audio conventions: `fs = 16000`, mono, 5 s windows, bands
   `[125, 250, 500, 1000, 2000, 4000, 8000]`.
 - **Branches**: one per item or coherent group: `fix/BUG-01-...`, `feat/...`, `refactor/...`,

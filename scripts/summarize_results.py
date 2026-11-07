@@ -56,7 +56,7 @@ def summarize_band(path: Path) -> dict:
     return metrics
 
 
-def markdown_table(exp_num: int, results_dir: Path) -> str:
+def markdown_table(exp_num: str, results_dir: Path) -> str:
     """Build the Markdown table for one experiment."""
     header = ["Band [Hz]", "N test", "Best epoch / total"]
     header += [f"{d} ρ / MAE [{u}]" for d, u in zip(DESCRIPTORS, UNITS)]
@@ -75,7 +75,7 @@ def markdown_table(exp_num: int, results_dir: Path) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    parser.add_argument("--exp", type=int, nargs="+", required=True, help="Experiment numbers.")
+    parser.add_argument("--exp", nargs="+", required=True, help="Experiment ids (e.g. 1 5 5_octagon).")
     parser.add_argument("--results-dir", type=Path, default=Path("results"))
     args = parser.parse_args()
 

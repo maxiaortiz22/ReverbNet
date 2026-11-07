@@ -14,11 +14,15 @@ Normative reference: **ISO 3382-1** (performance spaces). Current implementation
 - All parameters are computed **from the arrival of the direct sound**, not from sample 0 of
   the file. ISO 3382-1: the start is where the signal rises clearly above the background
   noise, before the direct sound, and no more than 20 dB below the maximum.
-- Recommended implementation: on the **broadband** RIR, the first index where
-  `|h| ≥ max|h| · 10^(-20/20)`. Trim there **before** band filtering and use the same onset
-  for every band.
-- The project's measured RIRs have 10–50 ms of pre-delay (great_hall ~33 ms, octagon ~31 ms,
-  classroom ~17 ms). Ignoring it biases C50/C80/D50 (BUG-02).
+- Implementation: `code/parameters_calculation/onset.py` → `find_onset(rir)` returns the first
+  index where `|h| ≥ max|h| · 10^(-20/20)` on the **broadband** RIR; `trim_to_onset(rir)` returns
+  the RIR from there. Trim **before** band filtering and use the same onset for every band.
+  Always reuse these functions; do not write new onset logic.
+- The project's measured RIRs have 8–51 ms of pre-delay (−20 dB crossing; median 24.7 ms).
+  Ignoring it biased C50 by ~2–5 dB and D50 by ~8–10 % on average (BUG-02, fixed in data
+  pipeline v2).
+- Current scope: C50/C80/D50 are onset-referenced; T30 (Lundeby, from the band peak) and DRR
+  keep their v0 definitions.
 - Detect peaks with `np.argmax(np.abs(h))` (BUG-07).
 
 ## Decay curve (Schroeder) and Lundeby
@@ -30,6 +34,13 @@ Normative reference: **ISO 3382-1** (performance spaces). Current implementation
 - `max_ruido_dB` (configs: −60 or −45 dB) discards RIRs whose noise (last 10 %) exceeds that
   level relative to the peak → `NoiseError`. These RIRs are discarded per band, which is why
   there is less data at 125 and 250 Hz.
+- Measured on the 468 real RIRs (DATA-10): at −60 dB none survive at 125/250 Hz and only
+  278/312 at 500 Hz/1 kHz; at −45 dB all survive from 500 Hz up and 211 at 250 Hz; none at
+  125 Hz either way. −45 dB is the ISO minimum for T30, so −60 dB is stricter than needed;
+  the v1 configs use −45 dB (decision recorded in DATA-10).
+- "Not enough dynamic range above the noise" is always a `NoiseError` (an expected discard),
+  also when `lundeby` finds no interval 10 dB above the noise. `tr_lundeby` raises
+  `ValueError` only for invalid input (empty, all-zero or non-finite RIR), which is a bug.
 
 ## Reverberation time
 

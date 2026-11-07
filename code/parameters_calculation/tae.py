@@ -48,7 +48,12 @@ def TAE(data, fs, sos_lowpass_filter):
     # Peak normalize.
     tae = tae / np.max(np.abs(tae))
 
-    # For 5 s @ 16 kHz input, the TAE should have exactly 200 samples.
-    assert(tae.size==200)
+    # For 5 s @ 16 kHz input, the TAE should have exactly 200 samples. This used to be an
+    # assert silently swallowed by the generator (BUG-05): inputs must be exactly 5 s.
+    if tae.size != 200:
+        raise ValueError(
+            f"TAE has {tae.size} samples instead of 200: the input must last exactly 5 s "
+            f"(got {len(data) / fs:.3f} s)"
+        )
 
     return tae

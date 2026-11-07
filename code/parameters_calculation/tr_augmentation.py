@@ -23,18 +23,25 @@ import glob
 
 
 class TrAugmentationError(Exception):
-    """Raised when TR augmentation fails for any reason (wrapper exception)."""
-    def __init__(self, *args):
-        if args:
-            self.message = args[0]
-        else:
-            self.message = None
+    """
+    Raised when the decay analysis of TR augmentation fails numerically.
+
+    Attributes
+    ----------
+    message : str or None
+        Description of the failure.
+    cause : str or None
+        Class name of the underlying exception (e.g. ``'IndexError'``), used to count
+        discards by reason.
+    """
+
+    def __init__(self, message=None, cause=None):
+        super().__init__(message)
+        self.message = message
+        self.cause = cause
 
     def __str__(self):
-        if self.message:
-            return 'MyCustomError, {0} '.format(self.message)
-        else:
-            return 'MyCustomError has been raised'
+        return f'TrAugmentationError: {self.message}' if self.message else 'TrAugmentationError'
 
 
 def get_audio_list(path, file_types=('.wav', '.WAV', '.flac', '.FLAC')):
@@ -175,14 +182,32 @@ def get_valid_interval(arr, init_value, final_value):
 
     Returns the clipped array segment and the corresponding sample indices.
     """
-    samples = np.arange(len(arr))
-    onset = np.where(arr < init_value)[0][0]
+    below_init = np.flatnonzero(arr < init_value)
+    if below_init.size == 0:
+        raise ValueError("The envelope never falls below the upper threshold of the interval")
+    onset = below_init[0]
     arr_aux = arr[onset:]
-    final = np.where(arr_aux < final_value)[0][0]
-    arr_aux2 = arr_aux[:final]
-    offset = len(arr) - len(arr_aux)
-    samples = samples[onset:(final + offset)]
-    return arr_aux2, samples
+    # If the lower threshold is never crossed, the valid interval runs to the end of the
+    # array (it used to raise IndexError, BUG-09).
+    below_final = np.flatnonzero(arr_aux < final_value)
+    final = below_final[0] if below_final.size else arr_aux.size
+    if final < 2:
+        raise ValueError("Valid decay interval has fewer than 2 samples")
+    samples = np.arange(onset, onset + final)
+    return arr_aux[:final], samples
+
+
+def _decaying_regression(n, arr):
+    """Linear fit of a decay; raises ValueError if the fitted slope does not decay."""
+    slope, intercept = linear_regression(n, arr)
+    if not slope < 0:
+        raise ValueError(f"Fitted decay slope is not negative ({slope:.3g} dB/sample)")
+    return slope, intercept
+
+
+def _clamp_index(index, length):
+    """Clamp a cross-point index into ``[1, length - 1]``."""
+    return int(min(max(index, 1), length - 1))
 
 
 def Lundeby_method(rir, fs):
@@ -218,30 +243,27 @@ def Lundeby_method(rir, fs):
     init_value = env_db.max()
     final_value = noise_floor_db + DISTANCIA_AL_PISO
     env_db_chunk, n_chunk = get_valid_interval(env_db, init_value, final_value)
-    slope, intercept = linear_regression(n_chunk, env_db_chunk)
-    cross_point = int((noise_floor_db - intercept) / slope)
-    time_interval = int((-10 / slope) / N_INTERVALOS_10DB)
+    slope, intercept = _decaying_regression(n_chunk, env_db_chunk)
+    cross_point = _clamp_index(int((noise_floor_db - intercept) / slope), len(env_db))
+    # Window with ~N_INTERVALOS_10DB steps per 10 dB of decay, at least one sample (a
+    # non-positive size used to raise "incorrect filter size", BUG-09).
+    time_interval = max(1, int((-10 / slope) / N_INTERVALOS_10DB))
     env = get_envelope(rir, time_interval)
     iteracion = 0
     delta_level = 1.0
     while iteracion < 6 and delta_level > 0.2:
-        if cross_point > len(env_db) - 1:
-            cross_level_1 = env_db[-1]
-        else:
-            cross_level_1 = env_db[cross_point]
+        cross_level_1 = env_db[cross_point]
         noise_floor_db = get_noise_level(cross_point, slope, env, DISTANCIA_AL_CRUCE)
-        init_value = noise_floor_db + DISTANCIA_AL_PISO
-        if init_value - RANGO_DINAMICO < np.min(env_db):
-            final_value = env_db[-2]
-        else:
-            final_value = init_value - RANGO_DINAMICO
+        # Lundeby: fit the late decay over a RANGO_DINAMICO-wide range whose lower end lies
+        # DISTANCIA_AL_PISO above the noise. The original code searched from noise + 5 down
+        # to noise − 5, i.e. below the noise floor, which a max-envelope rarely reaches; that
+        # raised IndexError for 24 of the 45 selected real RIRs (BUG-09).
+        final_value = noise_floor_db + DISTANCIA_AL_PISO
+        init_value = final_value + RANGO_DINAMICO
         env_db_chunk, n_chunk = get_valid_interval(env_db, init_value, final_value)
-        slope, intercept = linear_regression(n_chunk, env_db_chunk)
-        cross_point = int((noise_floor_db - intercept) / slope)
-        if cross_point > len(env_db) - 1:
-            cross_level_2 = env_db[-1]
-        else:
-            cross_level_2 = env_db[cross_point]
+        slope, intercept = _decaying_regression(n_chunk, env_db_chunk)
+        cross_point = _clamp_index(int((noise_floor_db - intercept) / slope), len(env_db))
+        cross_level_2 = env_db[cross_point]
         delta_level = abs(cross_level_1 - cross_level_2)
         iteracion += 1
     rir_cut = rir[:cross_point]
@@ -282,10 +304,14 @@ def estim_params(late, cross_point, fs):
     return estim_params
 
 
-def curva_noiseless(t, Am, decay_rate):
+def curva_noiseless(t, Am, decay_rate, rng=None):
     """
-    Generate a stochastic exponential decay (unity-variance white noise * decay)."""
-    noise = np.random.normal(0, 1, len(t))
+    Generate a stochastic exponential decay (unity-variance white noise * decay).
+
+    ``rng`` is a ``numpy.random.Generator``; ``None`` uses NumPy's global state (legacy,
+    non-reproducible, see BUG-06).
+    """
+    noise = (np.random if rng is None else rng).normal(0, 1, len(t))
     modelo = Am * np.exp(-t / decay_rate) * noise
     return modelo
 
@@ -322,11 +348,11 @@ def cross_fade(señal_1, señal_2, fs, cross_point):
     return (señal_1 * ventana_atenuante) + (señal_2 * ventana_amplificadora)
 
 
-def noise_crossfade(rir, estim_params, cross_point, fs):
+def noise_crossfade(rir, estim_params, cross_point, fs, rng=None):
     """
     Replace late noise by crossfading with a modeled noiseless decay."""
     t = np.linspace(0, len(rir) / fs, len(rir))
-    rir_noiseless = curva_noiseless(t, estim_params['Am'], estim_params['decay_rate'])
+    rir_noiseless = curva_noiseless(t, estim_params['Am'], estim_params['decay_rate'], rng=rng)
     rir_denoised = cross_fade(rir, rir_noiseless, fs, cross_point)
     return rir_denoised
 
@@ -361,7 +387,7 @@ def augmentation(rir, estim_params, estim_fullband_decay, TR60_desired, fs):
     return rir_aug
 
 
-def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
+def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter, rng=None):
     """
     Full TR augmentation pipeline for a broadband RIR.
 
@@ -386,8 +412,11 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
     TR_DESEADO : float
         Desired reverberation time (seconds) to which the decay should be scaled.
     bp_filter : object
-        Bandpass filter bank object exposing a ``process`` method that returns
+        Bandpass filter bank object exposing a ``filter_signals`` method that returns
         an array shaped ``(n_bands, n_samples)``.
+    rng : numpy.random.Generator or None, default=None
+        Random source for the synthesized noiseless tails. Pass a seeded generator for a
+        reproducible result (BUG-06); ``None`` uses NumPy's global state (legacy).
 
     Returns
     -------
@@ -397,7 +426,11 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
     Raises
     ------
     TrAugmentationError
-        Wraps any underlying exception raised during augmentation.
+        Wraps the numerical failures of the decay analysis (e.g. ``IndexError`` when the
+        Lundeby interval search finds no valid range, ``RuntimeError`` from the envelope
+        filters, curve-fit failures). The original exception type is kept in ``.cause``.
+        Programming errors (``NameError``, ``TypeError``, ``AttributeError``, ``KeyError``)
+        are **not** wrapped, so they surface instead of being counted as discards (BUG-05).
     """
     try:
         rir_entrada = normalize_rir(rir_entrada)
@@ -411,7 +444,8 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
             rir_band_denoised = noise_crossfade(rir_bands[band, :],
                                                 parameters,
                                                 cross_point,
-                                                fs)
+                                                fs,
+                                                rng=rng)
             rir_band_augs[band, :] = augmentation(rir_band_denoised,
                                                    parameters,
                                                    estim_fullband_decay,
@@ -419,6 +453,12 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter):
                                                    fs)
         rir_aug = np.sum(rir_band_augs, axis=0)
         rir_aug = np.concatenate((delay, early, rir_aug)).astype(np.float32)
+        # A near-zero fitted decay constant makes the rescaling exponential overflow; the
+        # resulting NaN/inf RIRs used to reach the descriptor code (BUG-09).
+        if not np.all(np.isfinite(rir_aug)) or not np.any(rir_aug):
+            raise FloatingPointError("Augmented RIR is not finite (or all zeros)")
         return rir_aug
+    except (NameError, TypeError, AttributeError, KeyError):
+        raise  # programming errors must surface (BUG-05)
     except Exception as err:
-        raise TrAugmentationError(f'{err.__class__.__name__}: {err}')
+        raise TrAugmentationError(f'{err.__class__.__name__}: {err}', cause=err.__class__.__name__) from err

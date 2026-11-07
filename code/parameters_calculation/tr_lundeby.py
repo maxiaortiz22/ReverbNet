@@ -36,8 +36,6 @@ class NoiseError(Exception):
             self.message = None
 
     def __str__(self):
-        # Debug message when stringifying the exception.
-        print('calling str')
         if self.message:
             return f'NoiseError: {self.message} '
         else:
@@ -227,11 +225,13 @@ def lundeby(y_power, Fs, Ts, max_ruido_dB):
 
     # Decay slope estimated from linear regression between the interval containing the maximum (0 dB)
     # and the first interval 10 dB above the initial noise level.
-    r = int(np.max(np.argwhere(y_promediodB > ruido_dB + 10)))
-    #print(f'r: {r}')
-
+    # Not enough dynamic range above the noise is the same kind of failure as the S/N check
+    # above, so it raises NoiseError (it used to be a ValueError, which the generator would
+    # not count as an expected discard; seen on augmented RIRs, BUG-09).
+    above_noise = np.argwhere(y_promediodB > ruido_dB + 10)
+    r = int(np.max(above_noise)) if above_noise.size else 0
     if r <= 0:
-        raise ValueError('No hay valor de la señal que esté 10 dB por encima del ruido')
+        raise NoiseError('No interval of the decay lies 10 dB above the noise level')
 
     m, c, rectacuadmin = leastsquares(eje_tiempo[0:r], y_promediodB[0:r])
     cruce = (ruido_dB - c) / m
@@ -307,6 +307,11 @@ def tr_lundeby(y, fs, max_ruido_dB):
     ruido_dB : float
         Estimated noise level (dB) relative to peak.
     """
+    # Reject invalid input explicitly (a NaN RIR used to fail later with an IndexError).
+    y = np.asarray(y, dtype=float)
+    if y.size == 0 or not np.all(np.isfinite(y)) or not np.any(y):
+        raise ValueError("tr_lundeby needs a non-empty, finite, non-zero impulse response")
+
     # Normalize and square the signal.
     y = y / np.max(np.abs(y))
     y **= 2

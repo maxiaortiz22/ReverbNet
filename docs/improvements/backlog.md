@@ -20,6 +20,15 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   function for training and inference.
 - **Acceptance**: test checking causal alignment (impulse at t=0 → output = RIR);
   regenerated database; v0 vs v1 comparison in `experiments.md`.
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): new shared helper
+  `code/convolution.py::causal_convolve` (full convolution truncated to `len(signal)`), used by
+  `DataBaseGenerator._process_entry` and exported from the package for inference.
+  `tests/test_convolution.py` covers impulse alignment, delay, output length, equivalence with
+  `np.convolve`, and a regression test showing that the output no longer depends on the RIR
+  length (the old `mode='same'` fails it). The cache name now carries `_dv1` (see CODE-05) so
+  the v0 caches are not reused. Smoke-tested on a real speech file with a measured and a
+  synthetic RIR. **Pending**: regenerating the database and measuring the impact, deferred to
+  baseline v1 (phase 3) so all P0 fixes are evaluated together.
 
 ### BUG-02 — C50/C80/D50 integrate from sample 0 instead of the direct sound
 - **Files**: `code/generate_database.py` (`_calculate_descriptors`),
@@ -34,6 +43,34 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   `room-acoustics` skill.
 - **Acceptance**: analytic tests (ideal exponential with a pre-delay → same C50 as without
   the delay); recomputed C50/D50 distributions compared against v0.
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): new
+  `code/parameters_calculation/onset.py` with `find_onset` (first sample ≥ peak − 20 dB,
+  polarity-independent) and `trim_to_onset`. `DataBaseGenerator._process_entry` detects the
+  onset on the broadband RIR, filters the trimmed RIR and passes it to C50/C80/D50. T30 and DRR
+  intentionally keep their v0 definitions (band-peak referenced) so the change is isolated.
+  `DATA_PIPELINE_VERSION` → 2. `tests/test_onset.py`: onset detection cases, analytic values
+  for T = 1 s with a 33 ms pre-delay (C50 ≈ −0.02 dB, C80 ≈ 3.05 dB, D50 ≈ 49.9 %), and
+  generator-level invariance to the pre-delay.
+- **Measured impact** (new − old, per band; mean and p5 to p95). Real RIRs (n = 468, onset
+  median 24.7 ms, range 7.8–50.8 ms):
+
+  | Band [Hz] | ΔC50 [dB] | ΔC80 [dB] | ΔD50 [%] |
+  | --- | --- | --- | --- |
+  | 125 | +4.80 (+0.31 to +18.32) | +2.41 (+0.18 to +6.64) | +7.64 (+0.95 to +19.83) |
+  | 250 | +4.57 (+0.09 to +18.65) | +2.90 (+0.13 to +8.57) | +10.69 (+0.43 to +31.92) |
+  | 500 | +2.95 (+0.10 to +12.21) | +2.08 (+0.13 to +5.50) | +8.57 (+0.49 to +26.89) |
+  | 1000 | +2.43 (+0.12 to +7.21) | +1.81 (+0.19 to +4.23) | +9.79 (+0.56 to +34.37) |
+  | 2000 | +2.26 (+0.08 to +6.26) | +1.80 (+0.16 to +3.84) | +10.49 (+0.38 to +34.21) |
+  | 4000 | +2.08 (+0.09 to +5.59) | +1.77 (+0.26 to +3.54) | +10.30 (+0.25 to +31.03) |
+  | 8000 | +1.89 (−0.08 to +5.50) | +1.72 (+0.11 to +3.44) | +9.19 (−0.21 to +28.12) |
+
+  Synthetic RIRs (n = 194, every 15th file): onset ≤ 0.2 ms, all changes ≤ 0.03 dB / 0.13 %.
+  So in v0 the real (and real-derived augmented) RIRs had C50/C80/D50 labels biased low by
+  well over one JND, while synthetic labels were correct: the training set mixed two
+  inconsistent label definitions. The field references (REW) are onset-referenced, so this
+  also affected the thesis field comparison.
+- **Pending**: the effect on model metrics is measured with baseline v1 (phase 3). The
+  band-filter group delay at low frequencies is still present (DATA-08).
 
 ### BUG-03 — Pink noise added after the filter bank and unfiltered
 - **Files**: `code/generate_database.py` (`_get_tae_with_noise`).
@@ -42,6 +79,20 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: `x = speech*rir + a*noise` in broadband (SNR defined broadband) → filter
   bank → TAE. The per-band SNR becomes a derived quantity.
 - **Acceptance**: the noisy training flow matches inference (real recording → filters → TAE).
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): new
+  `code/mixing.py::mix_at_snr` (broadband mean-power SNR) and
+  `DataBaseGenerator._build_input_bands`, which mixes pink noise with the reverberant speech
+  broadband and then applies the filter bank; the TAE of every band is computed from that
+  single recording. One SNR draw per recording (previously one per band). Records keep `snr`
+  (now the broadband SNR) and gain `snr_band` (resulting per-band SNR, diagnostic).
+  `pink_noise` accepts an optional `rng`. The C++ `AudioProcessor` (rms, rms_comp) is no longer
+  used (see CODE-03). `DATA_PIPELINE_VERSION` → 3. `tests/test_noise_mixing.py`: exact SNR,
+  invariance to noise level, mixture-then-filter equivalence, per-band SNR, a regression test
+  showing the 125 Hz band has no out-of-band noise (< −60 dB above 2 kHz), and one SNR per
+  recording.
+- **Measured impact**: see DATA-09. With a broadband SNR, the per-band SNR spreads widely
+  (pink noise vs. the speech spectrum): +3 to +7.5 dB above the broadband value at 125–500 Hz,
+  −2 dB at 1 kHz, −8 dB at 2 kHz, −14.5 dB at 4 kHz and −19 dB at 8 kHz on average.
 
 ### BUG-04 — Train/validation/test leakage
 - **Files**: `run.py`, `code/model.py` (`normalize_descriptors`), `configs/exp*.py`.
@@ -54,6 +105,34 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: group splits (room for real RIRs, source RIR for augmented ones, speaker
   for speech). Leave-one-room-out evaluation. Normalization fitted on train only.
 - **Acceptance**: split function with a test guaranteeing disjoint groups.
+- **Evidence** (2026-11-07): each real room has a very narrow T30 (500/1k mean, median and
+  p5–p95): great_hall 2.46 s (2.39–2.54), classroom 1.97 s (1.95–2.03), octagon ~3.1 s (few
+  octagon RIRs pass the −60 dB Lundeby criterion in mid bands). With positions of the same
+  room in train and test, a model can "recognize the room" instead of estimating its acoustics.
+- **Decisions** (maintainer): development split holds out `classroom`; milestone baselines run
+  leave-one-room-out (LORO, one fold per room). Test speakers `F4`, `M4`, `M9` (8 of 38 files).
+- **Resolution** (branch `fix/BUG-01-causal-convolution`):
+  - `code/splits.py`: group keys (`rir_group`, `speaker_of`, `recording_rir`),
+    `split_rirs` (by room; synthetic per file), `split_speech` (by speaker, pooling both
+    speech folders), `select_rirs_to_augment`, `validation_mask` (by source RIR, identical
+    for every band) and sorted listings. All random choices come from
+    `code/random_streams.py` (project seed + per-process stream).
+  - `run.py`: explicit validation split by source RIR (`validation_data` instead of
+    `validation_split`); targets normalized with the **training** 95th percentiles only
+    (`normalize_descriptors(y_train, y_val, y_test)`).
+  - Generator: speech entries may be paths relative to `data/Speech` (pooled folders).
+  - v1 configs: `configs/v1_base.py::make_config` + `exp5` (clean) and `exp6` (noisy), each
+    with LORO folds `*_great_hall` and `*_octagon` (results in `results/exp5_<room>` …).
+    The v0 configs `exp1`–`exp4` are untouched.
+  - Found while validating the configs: the cache name did not encode the split, so the LORO
+    folds would have silently reused the development-split database. The cache name now
+    includes a digest of the file lists and of the train/test assignment (`files_<sha1>`).
+  - Tests: `tests/test_splits.py` (disjoint rooms/speakers/RIRs, stability per item, fraction
+    checks, consistency across bands, train-only normalization, speech paths, cache name vs.
+    split). Checked separately that Keras 3 squeezes the `(n, 4, 1)` targets against the
+    `(n, 4)` output, so the MSE was computed correctly in v0 too.
+- **Cost note**: every LORO fold builds its own database (~4.3 GB, hours on CPU). Generating
+  all speech × RIR combinations once and splitting at read time would avoid that (see CODE-05).
 
 ### BUG-05 — Silenced exceptions
 - **Files**: `code/generate_database.py`, `code/parameters_calculation/drr_augmentation.py`.
@@ -61,9 +140,35 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   Example: the `DRRR_buscado` typo (drr_augmentation.py, line 113) raises a `NameError`
   nobody sees. `drr_aug` returns `None` and then `None /= ...` fails. The `TAE` `assert` is
   swallowed too.
+- **Evidence** (2026-11-07): two training speech files are shorter than 5 s (`F5s3.wav`
+  4.69 s, `M8s3.wav` 4.05 s). Their TAE has fewer than 200 samples, the `assert` fails and
+  **every record built from them is silently dropped** (all RIRs, all bands, also in the v0
+  databases). The thesis models were effectively trained on 28 speech files, not 30.
 - **Proposal**: catch specific exceptions (`NoiseError`, `TrAugmentationError`,
-  `ValueError`), count discards by reason and log them with `logging`. Fix the typo.
+  `ValueError`), count discards by reason and log them with `logging`. Fix the typo. Bring
+  every speech signal to exactly 5 s with an explicit `fix_length` (zero-pad or crop) and log
+  it, or reject short files up front with a clear message.
 - **Acceptance**: summary of discards by reason at the end of generation.
+- **Survey** (2026-11-07, all 468 real + 580 synthetic RIRs × 7 bands, plus TR/DRR
+  augmentations on 12 real RIRs): the only descriptor failure is `NoiseError` (Lundeby
+  criterion, see DATA-10); `drr_aug` hit the `NameError` typo whenever a DRR target was
+  unrealizable; TR augmentation failed with `IndexError`/`RuntimeError` inside its own
+  Lundeby search (see BUG-09). No other exception types occurred.
+- **Resolution** (branch `fix/BUG-01-causal-convolution`):
+  - Generator catches only expected failures and counts them by reason in a `Counter`:
+    `band:lundeby_noise`, `band:non_finite_descriptor`, `tr_variant:tr_augmentation_<cause>`,
+    `drr_variant:unrealizable`. Anything else propagates.
+  - `drr_aug` raises `DrrAugmentationError` (typo gone, no more `None` returns or prints).
+  - `tr_augmentation` keeps the original exception type in `TrAugmentationError.cause` and no
+    longer wraps programming errors (`NameError`, `TypeError`, `AttributeError`, `KeyError`).
+  - Speech is loaded as exactly 5 s (`_load_speech`): short files are zero-padded with one
+    warning per file and process, so `F5s3` and `M8s3` are now used. The TAE length `assert`
+    became a `ValueError`. Removed the debug `print` in `NoiseError.__str__`.
+  - `run.py` aggregates the discards of every RIR, prints them, and writes
+    `cache/<db>/generation_summary.json` (counts + discards) **last**; a folder without it is
+    treated as an interrupted generation and refused. `read_dataset` reads only `*.pkl`
+    partitions in numeric order (and concatenates once).
+  - Tests: `tests/test_generation_robustness.py`.
 
 ### BUG-06 — Reproducibility
 - **Files**: `code/generate_database.py`, `configs/exp*.py`.
@@ -74,6 +179,25 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: `sorted(os.listdir(...))`; `np.random.default_rng(seed)` derived from
   `(seed, rir_name)` and passed explicitly; pick the DRR subset once.
 - **Acceptance**: generating the same database twice yields identical results.
+- **Progress** (2026-11-07, DATA-09): the noise is now fully reproducible from the config's
+  `seed` via `RNG_STREAMS` in `code/generate_database.py` (one stream id per random process,
+  per-recording generators). Pattern to follow for the remaining items: add a stream id for
+  augmentation (TR subset, DRR subset, `curva_noiseless` tail) and derive generators from
+  `(seed, stream, crc32(name))`. Still pending: `random.sample` per iteration, clock-based
+  seed, `os.listdir` order in configs, global `np.random` in `tr_augmentation`.
+- **Progress** (2026-11-07, BUG-04): `RNG_STREAMS` moved to `code/random_streams.py`
+  (`item_rng`), with streams for `split`, `validation` and `augment`. The v1 configs use sorted
+  listings and seed-derived split/augmentation choices (verified: loading a config twice gives
+  identical lists). Still pending in the generator: per-iteration `random.sample`, the
+  clock-based `random.seed`, and global `np.random` in `tr_augmentation`.
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`): the clock seed and
+  `random` are gone from the generator. Augmentation is seeded per item through
+  `code/random_streams.py`: `drr_subset` (exactly `min(5, n_tr)` TR variants per RIR get the DRR
+  sweep, chosen once) and `tr_tail` (the synthesized noiseless tail of each TR variant;
+  `tr_augmentation`, `noise_crossfade` and `curva_noiseless` accept an `rng`). Verified on real
+  data that a multiprocess run and a serial run produce identical records (TAE, descriptors,
+  SNR). The v0 configs still use unsorted `os.listdir`, intentionally (kept as v0); v1 configs
+  use sorted listings. Tests: `tests/test_generation_robustness.py`.
 
 ### BUG-07 — Direct-sound detection with `argmax(rir)` without `abs`
 - **Files**: `drr_augmentation.py` (`get_DRR`, `drr_aug`), `tr_augmentation.py`
@@ -88,6 +212,57 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   `ModuleNotFoundError: No module named 'filters'`, because TF indirectly imports the stdlib
   `code` module and Python loads the local package instead.
 - **Proposal**: solved by CODE-04 (rename to `reverbnet`).
+
+### BUG-09 — TR augmentation fails for most selected real RIRs
+- **Files**: `code/parameters_calculation/tr_augmentation.py` (`Lundeby_method`,
+  `get_valid_interval`, `get_envelope`).
+- **Problem**: the decay analysis inside `tr_augmentation` (its own lightweight Lundeby
+  search, separate from `tr_lundeby.py`) fails for many measured RIRs. The failure does not
+  depend on the target RT, so a failing RIR loses **all** its TR and DRR variants.
+- **Evidence** (2026-11-07, the 45 RIRs selected by the v1 configs, target RT 1.0 s): 26 of 45
+  fail (classroom 8/15, great_hall 8/15, octagon 10/15): 24 × `IndexError` (an empty
+  `np.where(...)[0][0]` in `get_valid_interval`) and 2 × `RuntimeError: incorrect filter size`
+  (a non-positive `time_interval` passed to `maximum_filter1d`). v0 had the same failures,
+  silently. The augmented part of the database is therefore less than half of what the
+  configuration intends.
+- **Proposal**: make the interval search robust (fallbacks when no sample crosses the
+  threshold, clamp the window size), or reuse the validated `tr_lundeby.lundeby` to find the
+  cross point. Alternatively, select for augmentation only RIRs that pass the analysis.
+- **Acceptance**: failure rate measured before/after on the 45 selected RIRs; augmented RIRs
+  still reach their target T30 (check with `tr_lundeby`).
+- **Root cause**: in the Lundeby iteration the late-decay fit was searched from noise + 5 down
+  to noise − 5 (internal scale), i.e. *below* the noise floor, which a max-envelope rarely
+  reaches (`IndexError`). Lundeby fits a 10–20 dB range whose lower end lies 5–10 dB *above*
+  the noise. A non-decaying first fit gave a non-positive envelope window (`RuntimeError`).
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`):
+  - The iteration fits from `noise + DISTANCIA_AL_PISO + RANGO_DINAMICO` down to
+    `noise + DISTANCIA_AL_PISO`; `get_valid_interval` runs to the end when the lower threshold
+    is never crossed and raises `ValueError` for empty/too-short intervals; fitted slopes must
+    be negative (`ValueError` otherwise); window ≥ 1 sample; cross points clamped.
+  - Outputs are checked: a non-finite (or all-zero) augmented RIR raises
+    `FloatingPointError` → counted as `tr_variant:tr_augmentation_FloatingPointError`. These
+    NaN RIRs used to reach the descriptor code and fail there silently.
+  - `tr_lundeby`: invalid input → `ValueError`; "no interval 10 dB above the noise" is now a
+    `NoiseError` (it was a `ValueError`, which would have stopped a v1 generation: found on
+    one augmented variant by running the full generator path on the 45 selected RIRs).
+  - Tests: `tests/test_tr_augmentation.py` (includes a band-filtered decay on which the old
+    code raised `IndexError`).
+- **Measured** (45 selected RIRs × 5 target RTs, analysis failures only): 130/225 (58 %) →
+  10/225 (4.4 %); the remaining failures are 2 RIRs whose fitted decay does not decay. On the
+  cases that already worked, the mid-band T30 error vs. the target is unchanged (median 23.8 %
+  → 24.2 %). That error does not affect the labels (they are measured on the augmented RIR);
+  the target only shapes the RT distribution.
+- **Remaining limitation**: lengthening a decay a lot overflows the rescaling exponential.
+  Non-finite outputs appear only for targets ≥ 1.7 s and grow to ~55 % of the RIRs at 3.0 s, so
+  augmented RIRs are biased towards short RTs (synthetic RIRs still cover long RTs uniformly).
+  Possible follow-up: cap the lengthening ratio per band, or synthesize the lengthened tail
+  instead of amplifying it.
+- **Full-path validation** (generator's `_augmented_variants` + `_rir_band_descriptors` on all
+  45 selected RIRs, 8 processes, 405 s): 4706 RIR variants (45 originals + 4661 augmented),
+  **0 unexpected exceptions**. Discards: `tr_variant:tr_augmentation_FloatingPointError` 303,
+  `tr_variant:tr_augmentation_ValueError` 58 (the 2 non-decaying RIRs × 29 targets),
+  `drr_variant:unrealizable` 158, `band:lundeby_noise` 87. So 944 of the 1305 TR variants
+  (72 %) are usable, against ~42 % of the RIRs before the fix.
 
 ---
 
@@ -127,13 +302,15 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   direct sound with a smooth crossfade, targeting a given C50.
 
 ### DATA-06 — Speech corpus
-- **Problem**: 33 training files and 8 test files, and only the first 5 s are used.
+- **Problem**: 30 training files and 8 test files, and only the first 5 s are used.
 - **Proposal**: LibriSpeech / VCTK / EARS with random 5 s crops and VAD to guarantee speech
   activity. Split by speaker.
 
 ### DATA-07 — Real noise and a clean/noisy mix
 - **Proposal**: besides pink noise, real noise (DEMAND, MUSAN: babble, HVAC, traffic).
   Train on a mix of clean and noisy examples (future work in the thesis).
+- **Progress** (2026-11-07, DATA-09): random noise color (β range) and a configurable
+  noise-free fraction (`clean_fraction`) are implemented. Real noise recordings are still pending.
 
 ### DATA-08 — Filter influence on descriptors
 - **Problem**: causal Butterworth filters (order 4 → order-8 bandpass) bias the decay at
@@ -141,6 +318,110 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   an octave).
 - **Proposal**: for RIR descriptors, time-reversed or zero-phase filtering (check
   Jacobsen's B·T > 16 criterion). Document the 8 kHz band or raise fs.
+
+### DATA-09 — Revisit the SNR range and definition
+- **Files**: `configs/exp*.py` (`snr`), `code/mixing.py`, `code/generate_database.py`.
+- **Problem**: since BUG-03 the SNR is broadband (mean power over the 5 s window). The range
+  `[-5, 20]` dB was chosen when it applied per band. With pink noise, high bands end up far
+  below the broadband value, so most 4–8 kHz TAEs of a noisy database are noise-dominated.
+- **Evidence** (30 training speech files × 8 real RIRs, band SNR − broadband SNR in dB, mean
+  and p5 to p95):
+
+  | Band [Hz] | Offset [dB] | Band SNR for broadband −5…20 dB (mean) |
+  | --- | --- | --- |
+  | 125 | +3.1 (−8.1 to +10.1) | −1.9 to +23.1 |
+  | 250 | +7.5 (+3.0 to +10.6) | +2.5 to +27.5 |
+  | 500 | +7.2 (+3.1 to +10.1) | +2.2 to +27.2 |
+  | 1000 | −2.3 (−8.8 to +2.4) | −7.3 to +17.7 |
+  | 2000 | −8.3 (−14.6 to −0.8) | −13.3 to +11.7 |
+  | 4000 | −14.5 (−20.6 to −8.6) | −19.5 to +5.5 |
+  | 8000 | −19.3 (−29.3 to −11.2) | −24.3 to +0.7 |
+
+- **Proposal**: decide the SNR range from realistic scenarios (e.g. 0–40 dB broadband),
+  consider defining the SNR over active speech only (VAD) or A-weighted, and add real noise
+  spectra (DATA-07). Report metrics per `snr_band` bucket. Decide before generating the noisy
+  variant of baseline v1.
+- **Analysis** (2026-11-07; 28 full-length training speech files × 8 real RIRs spread over the
+  3 rooms; script kept outside the repo, method described here):
+  1. *Definition*. Active-speech power (20 ms frames within 25 dB of the 95th-percentile
+     frame) vs. whole-window power: reverberation fills the pauses (93 % of frames active), so
+     `SNR_active − SNR_window` = +0.30 dB on average (p95 +0.84 dB). **A VAD-based definition
+     would change nothing in practice**; the whole-window definition can stay.
+  2. *Noise color dominates the per-band SNR*. Band SNR − broadband SNR (mean, dB) for noise
+     with power density ∝ 1/f^β:
+
+     | Band [Hz] | white β=0 | pink β=1 | β=1.5 | brown β=2 |
+     | --- | --- | --- | --- | --- |
+     | 125 | +9.5 | +2.3 | +10.0 | +21.8 |
+     | 250 | +11.2 | +6.9 | +16.2 | +29.4 |
+     | 500 | +9.3 | +8.1 | +18.9 | +33.6 |
+     | 1000 | −3.4 | −1.7 | +10.7 | +26.9 |
+     | 2000 | −12.5 | −7.7 | +6.1 | +23.8 |
+     | 4000 | −21.7 | −14.0 | +1.4 | +20.5 |
+     | 8000 | −28.4 | −18.5 | −2.0 | +18.1 |
+
+     Pink noise has equal energy per octave; typical room background noise (HVAC, traffic,
+     NC/NR-like spectra) falls with frequency per octave, i.e. lies between pink and brown.
+     Always using pink noise is therefore a worst case for 2–8 kHz.
+  3. *How much band SNR the TAE needs*. Pearson correlation between the clean and the noisy
+     TAE of the same band, with noise at a controlled per-band SNR (n = 38 recordings per cell):
+
+     | Band SNR | −5 dB | 0 dB | +5 dB | +10 dB | +15 dB | +20 dB | +30 dB |
+     | --- | --- | --- | --- | --- | --- | --- | --- |
+     | linear TAE (range over bands) | 0.46–0.93 | 0.75–0.97 | 0.91–0.99 | 0.97–1.00 | ≥ 0.99 | 1.00 | 1.00 |
+     | TAE in dB, −60 dB floor (range over bands) | 0.45–0.50 | 0.59–0.65 | 0.75–0.79 | 0.85–0.88 | 0.91–0.93 | 0.95–0.96 | 0.99 |
+
+     The linear correlation is dominated by speech peaks and is optimistic. In dB, which reflects
+     the low-level decay that encodes T30, the TAE only resembles the clean one (r ≥ 0.9) from
+     **~15 dB of band SNR**, and needs ~20 dB for r ≥ 0.95. Below ~5 dB it is mostly noise.
+- **Options**:
+  - (a) Keep pink noise and `[-5, 20]` dB: 4–8 kHz bands at −24…+6 dB, mostly unusable for the
+    decay; a large part of the noisy database becomes noise.
+  - (b) Randomize the noise color per recording (β ∈ [1, 2], pink to brown) and use a broadband
+    range of `[0, 40]` dB: every band spans from hard (< 5 dB) to clean (> 30 dB) cases.
+  - (c) Option (b) plus a fraction of noise-free recordings (thesis future work, DATA-07).
+- **Decision** (2026-11-07, maintainer): option (c), with reproducible noise driven by the
+  project-wide `seed` already present in the configs.
+- **Resolution** (branch `fix/BUG-01-causal-convolution`):
+  - `colored_noise(samples, beta, rng)` in `code/parameters_calculation/pink_noise.py`
+    (`pink_noise` is now a wrapper with β = 1).
+  - New generator parameters (read by `run.py` with legacy defaults): `noise_beta`
+    (default `[1.0, 1.0]`), `clean_fraction` (default `0.0`) and `seed` (the config's `seed`).
+    The `snr` range is unchanged in code; the values recommended for the noisy variant of
+    baseline v1 are `snr = [0, 40]`, `noise_beta = [1.0, 2.0]`, `clean_fraction = 0.2`, to be
+    set in the v1 configs (exp1–4 configs are left untouched as v0).
+  - Per-recording RNG: `default_rng([seed, RNG_STREAMS['noise'], crc32(recording_name)])`.
+    Draw order per recording: clean/noisy decision → β → SNR → noise realization. The same
+    seed and recording always give the same noisy recording, independent of processing order,
+    multiprocessing and the rest of the file list.
+  - Records gain `noise_beta`; `snr`, `snr_band` and `noise_beta` are NaN for clean recordings.
+  - The cache name encodes `beta`, `clean` and `seed`; `DATA_PIPELINE_VERSION` → 4.
+  - Tests in `tests/test_noise_mixing.py`: spectral slope of colored noise (fitted PSD slope
+    ≈ −β), reproducibility across generators, call order and seeds, distribution of the draws
+    (clean fraction, β and SNR ranges), clean recordings, parameter validation, cache name.
+- **Note**: since the same `seed` also drives the RIR train/test split in the configs, a new
+  noise realization with the same split is not possible without a code change. If that is
+  ever needed, add an optional offset rather than a second seed.
+
+### DATA-10 — Lundeby noise criterion for the v1 databases
+- **Files**: `configs/v1_base.py` (`max_ruido_dB`), `code/parameters_calculation/tr_lundeby.py`.
+- **Problem**: `max_ruido_dB = -60` (v0 exp1/exp3, and the current v1 configs) discards most
+  real band RIRs at low and mid frequencies, so those bands are learned almost only from
+  synthetic RIRs, and the test room has no real RIR there.
+- **Evidence** (2026-11-07, real RIRs passing the criterion per band, n = 468):
+
+  | Criterion | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | −60 dB | 0 | 0 | 278 | 312 | 405 | 468 | 468 |
+  | −45 dB | 0 | 211 | 468 | 468 | 468 | 468 | 468 |
+
+  ISO 3382-1 needs the bottom of the T30 range (−35 dB) to stay ≥ 10 dB above the noise, i.e.
+  ≥ 45 dB of dynamic range; −60 dB is stricter than the standard requires.
+- **Proposal**: use −45 dB for v1 (T30 still valid per ISO). At 125 Hz no real RIR passes even
+  then; consider T20 there, or report 125 Hz as synthetic-only.
+- **Decision** (2026-11-07, maintainer): −45 dB for v1. `configs/v1_base.py::make_config` now
+  defaults to `max_ruido_dB=-45`; the v0 configs keep their values. 125 Hz stays without real
+  RIRs (open question: T20 there, or report it as synthetic-only).
 
 ---
 
@@ -192,9 +473,17 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 ### CODE-01 — Augment and compute descriptors once per RIR
 - **Files**: `code/generate_database.py` (`process_single_rir`).
 - **Problem**: RT augmentation (curve_fit, Lundeby, filtering) and descriptors are
-  recomputed inside the speech loop (~33× per RIR). Since the augmented tail is random, the
+  recomputed inside the speech loop (~30× per RIR, once per training speech file). Since the augmented tail is random, the
   same variant gets different labels depending on the speech file.
 - **Proposal**: generate RIR variants and their descriptors once, then convolve each speech file.
+- **Resolution** (2026-11-07, with BUG-06, branch `fix/BUG-01-causal-convolution`):
+  `process_single_rir` builds the variants once (`_augmented_variants`) and computes their
+  per-band descriptors once (`_rir_band_descriptors`), then loops over speech files.
+- **Measured** (classroom_00x10y, 155 variants): building the augmentations takes 9.8 s per
+  RIR (v0 repeated it for each of the 30 speech files); descriptors were 46 % of the cost of
+  each (speech, variant) pair (49 of 105 ms). With 3 speech files the RIR went from 68.8 s to
+  55.1 s; the saving grows with 30 files. Rough estimate for a full v1 database: ~2.5 h of
+  CPU, i.e. ~20–30 min on 8 cores (to be confirmed by the first run).
 
 ### CODE-02 — Storage
 - **Problem**: pickled DataFrames holding Python lists; `read_dataset` reads the full
@@ -208,6 +497,8 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   and `cp312-win` paths.
 - **Options**: (a) remove it and use numpy; (b) keep it only for a real-time / plugin goal
   (RES-04). Record the decision in `log.md`.
+- **Update** (2026-11-07, BUG-03): `AudioProcessor` (rms, snr, rms_comp) is no longer used by
+  the pipeline; only `ClarityCalculator` and `DefinitionCalculator` remain in use.
 
 ### CODE-04 — Installable `reverbnet` package
 - **Proposal**: rename `code/` → `reverbnet/`, add `pyproject.toml`, `pip install -e .`,
@@ -219,6 +510,15 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   include bands, fs, filter order, speech list or code version → risk of reusing a stale cache.
 - **Proposal**: move split logic into the code; declarative configs (YAML/dataclass) holding
   only the differences; cache name = hash of the parameters that affect it.
+- **Progress** (2026-11-07, BUG-01 branch): `DATA_PIPELINE_VERSION` in
+  `code/generate_database.py`, appended to the cache name as `_dv<N>`. It must be bumped by
+  every change that alters generated features or labels. Version 0 = thesis caches (no suffix).
+  Config de-duplication and hashing of the remaining parameters are still pending.
+- **Progress** (2026-11-07, BUG-04): the cache name includes `files_<sha1>`, a digest of the
+  RIR/speech file lists, the train/test assignment and the augmentation choice. New v1
+  configs share `configs/v1_base.py::make_config` (each experiment is three lines). Pending:
+  hash of the remaining parameters (bands, fs, filter order), and splitting at read time so
+  LORO folds can share one database.
 
 ### CODE-06 — Inference CLI
 - **Proposal**: `python -m reverbnet.predict audio.wav` → 5 s windows with VAD over the whole
@@ -227,6 +527,9 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 ### CODE-07 — Tests and CI
 - **Proposal**: `tests/` with pytest: analytic descriptor cases (ideal exponential),
   convolution alignment, disjoint splits, TAE shape. GitHub Actions.
+- **Progress** (2026-11-07, BUG-01 branch): pytest 9.2.0 installed in the `ReverbNet` env;
+  `tests/conftest.py` (sys.path workaround until CODE-04) and `tests/test_convolution.py`.
+  Pending: add pytest to the dependency files, descriptor/TAE/split tests, CI.
 
 ### CODE-08 — Dependencies and README
 - **Problem**: `numpy` unpinned with TF 2.16 (requires numpy < 2); dependencies unused by the
@@ -238,6 +541,8 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   copy `read_dataset` and the inference functions; `get_parameters` calls
   `filter_.filtered_signals`, which does not exist.
 - **Proposal**: a single implementation in the package, imported from the notebooks.
+- **Progress** (2026-11-07, BUG-05): `generate_database()` now reuses `process_single_rir`.
+  The notebook duplicates are still pending.
 
 ---
 

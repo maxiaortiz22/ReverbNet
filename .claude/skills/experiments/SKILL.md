@@ -19,6 +19,32 @@ description: Workflow for running, recording and comparing ReverbNet experiments
 5. **Disk and time**: each database takes ~4.3 GB; training runs on CPU (TRAIN-06) and takes
    hours. Warn the user before launching anything long.
 
+## Config keys for noise and randomness
+
+- `seed`: the **only** seed of the project. It drives the RIR train/test split in the config
+  and every random process of data generation (noise today; augmentation once BUG-06 is done).
+  Changing it changes both the split and the noise.
+- `add_noise`: master switch for noise.
+- `snr`: broadband SNR range in dB, drawn uniformly per recording.
+- `noise_beta`: range of the noise spectral exponent (1/f^β), drawn per recording.
+- `clean_fraction`: probability that a recording stays noise-free.
+- Recommended noisy setup (DATA-09): `snr = [0, 40]`, `noise_beta = [1.0, 2.0]`,
+  `clean_fraction = 0.2`. If `noise_beta`/`clean_fraction` are missing, `run.py` falls back to
+  the legacy setup (always pink, no clean fraction), which is what the v0 configs exp1–4 use.
+
+## v1 configs
+
+- New experiments use `configs/v1_base.py::make_config(exp_num, add_noise, test_rooms=...)`;
+  each config file is three lines. Never copy the split logic into a config again.
+- All v1 configs use the Lundeby criterion `max_ruido_dB = -45` (DATA-10).
+- `exp5` (clean) and `exp6` (noisy) hold out `classroom`. Their leave-one-room-out folds are
+  `exp5_great_hall`, `exp5_octagon`, `exp6_great_hall`, `exp6_octagon`, with string ids
+  (results in `results/exp5_octagon`, …; `summarize_results.py --exp 5 5_octagon` accepts them).
+- Report LORO metrics per fold and their mean; the development fold alone is for iterating.
+- Each fold builds its own database (the split is baked in): ~4.3 GB and hours per fold.
+- The cache name includes a digest of the file lists and split (`files_<sha1>`), so folds and
+  file changes never share a cache.
+
 ## Running
 
 ```bash
@@ -27,8 +53,13 @@ python run.py --config configs/expN.py
 
 - Run it in the background if it will take more than a couple of minutes, logging to
   `results/expN/train.log`.
-- If data generation is interrupted, the cache folder is left half-written and the next run
-  treats it as complete (`any(db_dir.iterdir())`): delete it before retrying.
+- `run.py` writes `cache/<db>/generation_summary.json` **last** (record counts and discards by
+  reason). A database folder without it was interrupted: `run.py` refuses to use it; delete
+  the folder (after confirming with the user) and run again.
+- After generating, read the discards in the summary and record the relevant ones in
+  `experiments.md` (e.g. how many band records the Lundeby criterion removed per band).
+- Expected cost of one v1 database: roughly 20–30 min on 8 cores (estimate; replace it with
+  the measured time after the first run).
 - For quick pipeline tests: a config with a small `sample_frac` and few epochs, with a test
   `exp_num` (e.g. 900+) that is deleted afterwards.
 

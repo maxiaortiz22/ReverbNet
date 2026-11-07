@@ -154,54 +154,38 @@ def reshape_data(tae, descriptors):
     return X, y
 
 
-def normalize_descriptors(descriptors, y_train, y_test):
+def normalize_descriptors(y_train, y_val, y_test):
     """
-    Normalize descriptor targets by their global 95th percentile values.
+    Normalize descriptor targets by the 95th percentile of the **training** set.
 
-    The 95th percentile is computed across the concatenated descriptor set
-    (train + test) for each acoustic metric (T30, C50, C80, D50), and each
-    sample in ``y_train`` and ``y_test`` is divided by the corresponding
-    percentile. The percentile values are returned for later denormalization
-    or reporting.
+    The percentiles are fitted on ``y_train`` only and then applied to every split, so no
+    statistic of the validation or test data leaks into training (BUG-04; previously they
+    were computed on train + test).
 
     Parameters
     ----------
-    descriptors : array_like
-        Combined descriptor collection (train + test) prior to normalization.
-    y_train : array_like
-        Training descriptor targets (pre‑normalization).
-    y_test : array_like
-        Test descriptor targets (pre‑normalization).
+    y_train, y_val, y_test : ndarray, shape (n_samples, 4, 1)
+        Descriptor targets ``[T30, C50, C80, D50]`` of each split (pre-normalization).
 
     Returns
     -------
-    y_train : ndarray
-        Normalized training targets.
-    y_test : ndarray
-        Normalized test targets.
+    y_train, y_val, y_test : ndarray
+        Normalized targets, same shapes as the inputs.
     T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95 : float
-        95th percentile values used for normalization (per descriptor).
+        Training 95th percentiles used for normalization (needed to de-normalize).
     """
-    descriptors = list(descriptors)
+    y_train = np.asarray(y_train, dtype=float)
+    if y_train.ndim != 3 or y_train.shape[1:] != (4, 1):
+        raise ValueError(f"`y_train` must have shape (n, 4, 1), got {y_train.shape}")
 
-    # Extract each descriptor column.
-    T30 = [descriptors[i][0][0] for i in range(len(descriptors))]
-    C50 = [descriptors[i][1][0] for i in range(len(descriptors))]
-    C80 = [descriptors[i][2][0] for i in range(len(descriptors))]
-    D50 = [descriptors[i][3][0] for i in range(len(descriptors))]
+    norm = np.percentile(y_train[:, :, 0], 95, axis=0).reshape(1, 4, 1)
 
-    # Percentile (95th) per descriptor.
-    T30_perc_95 = np.percentile(T30, 95)
-    C50_perc_95 = np.percentile(C50, 95)
-    C80_perc_95 = np.percentile(C80, 95)
-    D50_perc_95 = np.percentile(D50, 95)
+    def apply(y):
+        return np.asarray(y, dtype=float) / norm
 
-    norm = np.array([T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95]).reshape(-1, 1)
-
-    y_train = np.array([y_train[i]/norm for i in range(len(y_train))])
-    y_test = np.array([y_test[i]/norm for i in range(len(y_test))])
-
-    return y_train, y_test, T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95
+    T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95 = norm.ravel()
+    return (apply(y_train), apply(y_val), apply(y_test),
+            T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95)
 
 
 def prediction(blind_estimation_model, X_test, y_test):

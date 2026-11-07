@@ -5,11 +5,14 @@ import pandas as pd
 from code import import_configs_objs
 from code import DataBaseGenerator
 from code import read_dataset
-from sklearn.model_selection import train_test_split
 from code import model, reshape_data, normalize_descriptors, prediction, descriptors_err, save_exp_data, create_early_stopping_callback
+from code.splits import validation_mask
 import concurrent.futures
 import gc
-from numpy import concatenate, argmin
+import json
+from collections import Counter
+from numpy import argmin
+from code.data_reader import GENERATION_SUMMARY
 from warnings import filterwarnings
 filterwarnings("ignore")  # Suppress non-critical warnings for cleaner console output.
 
@@ -80,7 +83,12 @@ def main(**kwargs):
         config['to_augmentate'], config['rirs_for_training'],
         config['rirs_for_testing'], config['bands'], config['filter_type'], config['fs'],
         config['max_ruido_dB'], config['order'], config['add_noise'], config['snr'],
-        config['tr_aug'], config['drr_aug']
+        config['tr_aug'], config['drr_aug'],
+        # Noise options (DATA-09). Defaults reproduce the legacy setup: always pink noise,
+        # no noise-free fraction. The project-wide seed makes the noise reproducible.
+        noise_beta=config.get('noise_beta', [1.0, 1.0]),
+        clean_fraction=config.get('clean_fraction', 0.0),
+        seed=config['seed'],
     )
 
     # ------------------------------------------------------------------
@@ -91,31 +99,47 @@ def main(**kwargs):
     db_dir = database.cache_path / database.db_name      # e.g., cache/BD-TR08_SNR20
     chunk_size = 50_000                                  # records per pickle
 
-    if db_dir.exists() and any(db_dir.iterdir()):
+    # The summary file is written last, so it marks a complete database. A folder without
+    # it was interrupted mid-generation and must not be used (it used to be taken as done).
+    summary_path = db_dir / GENERATION_SUMMARY
+
+    if summary_path.exists():
         print(f"Database already exists at: {db_dir}")
+    elif db_dir.exists() and any(db_dir.iterdir()):
+        raise RuntimeError(
+            f"{db_dir} exists but has no {GENERATION_SUMMARY}: a previous generation was "
+            f"interrupted. Delete the folder and run again."
+        )
     else:
         print("Starting database generation with multiprocessing...")
         db_dir.mkdir(parents=True, exist_ok=True)        # create directory if needed
 
         chunk_records: list[dict] = []
         part_idx: int = 0
+        n_records: int = 0
+        discards: Counter = Counter()
+        n_rirs = len(config['files_rirs'])
 
         with concurrent.futures.ProcessPoolExecutor() as executor:
-            # process_single_rir() is expected to return a list of dict records per RIR.
+            # process_single_rir() returns (records, discard counts) for one RIR.
             results_iter = executor.map(
                 database.process_single_rir,
                 config['files_rirs']
             )
 
-            for record_list in results_iter:
-                # Accumulate records from this RIR.
+            for n_done, (record_list, rir_discards) in enumerate(results_iter, start=1):
+                # Accumulate records and discard counts from this RIR.
                 chunk_records.extend(record_list)
+                n_records += len(record_list)
+                discards.update(rir_discards)
+                if n_done % 50 == 0 or n_done == n_rirs:
+                    print(f"  - {n_done}/{n_rirs} RIRs processed, {n_records} records")
 
                 # While we have at least chunk_size records → write and clear buffer slice.
                 while len(chunk_records) >= chunk_size:
                     df_part = pd.DataFrame(chunk_records[:chunk_size])
                     df_part.to_pickle(db_dir / f"{part_idx}.pkl")
-                    print(f"  ▸ Saved {part_idx}.pkl with {len(df_part)} rows")
+                    print(f"  - Saved {part_idx}.pkl with {len(df_part)} rows")
                     part_idx += 1
                     chunk_records = chunk_records[chunk_size:]  # drop written records
 
@@ -123,12 +147,25 @@ def main(**kwargs):
         if chunk_records:
             df_part = pd.DataFrame(chunk_records)
             df_part.to_pickle(db_dir / f"{part_idx}.pkl")
-            print(f"  ▸ Saved {part_idx}.pkl with {len(df_part)} remaining rows")
+            print(f"  - Saved {part_idx}.pkl with {len(df_part)} remaining rows")
+            part_idx += 1
 
-        if part_idx == 0 and not chunk_records:
+        # Discards by reason (BUG-05): units are band records or whole RIR variants.
+        print("Discarded items by reason:")
+        for reason, count in sorted(discards.items()):
+            print(f"  - {reason}: {count}")
+        summary_path.write_text(json.dumps({
+            'db_name': database.db_name,
+            'n_rirs': n_rirs,
+            'n_records': n_records,
+            'n_partitions': part_idx,
+            'discards': dict(sorted(discards.items())),
+        }, indent=2), encoding='utf-8')
+
+        if n_records == 0:
             print("Warning: no records were generated; database is empty.")
         else:
-            print(f"✅ Database generated in {db_dir} with {part_idx+1} files.")
+            print(f"Database generated in {db_dir} with {part_idx} files ({n_records} records).")
 
     # --- Memory cleanup of large generator object ---
     db_name = database.db_name  # retain db_name for subsequent loads
@@ -145,18 +182,22 @@ def main(**kwargs):
         db_train = read_dataset(band, db_name, config['sample_frac'], config['random_state'], type_data='train')
         db_test = read_dataset(band, db_name, config['sample_frac'], config['random_state'], type_data='test')
 
-        tae_train = list(db_train.tae.to_numpy())
-        tae_test = list(db_test.tae.to_numpy())
-        descriptors_train = list(db_train.descriptors.to_numpy())
-        descriptors_test = list(db_test.descriptors.to_numpy())
+        # Validation by source RIR (BUG-04): whole RIRs, with all their speech files and
+        # augmentations, go to validation. Keras' validation_split took the last records,
+        # so the same RIR was on both sides and early stopping was optimistic.
+        val_mask = validation_mask(db_train.ReverbedAudio, config['validation_split'], config['seed'])
+        db_val = db_train[val_mask]
+        db_train = db_train[~val_mask]
+        print(f"Records: train {len(db_train)}, validation {len(db_val)}, test {len(db_test)}")
 
-        # Split into train/test arrays and reshape for model input.
-        X_train, y_train = reshape_data(tae_train, descriptors_train)
-        X_test, y_test = reshape_data(tae_test, descriptors_test)
+        # Reshape for model input.
+        X_train, y_train = reshape_data(list(db_train.tae.to_numpy()), list(db_train.descriptors.to_numpy()))
+        X_val, y_val = reshape_data(list(db_val.tae.to_numpy()), list(db_val.descriptors.to_numpy()))
+        X_test, y_test = reshape_data(list(db_test.tae.to_numpy()), list(db_test.descriptors.to_numpy()))
 
-        # Normalize descriptor targets using the 95th percentile of each descriptor.
-        descriptors = concatenate((y_train, y_test), axis=0)
-        y_train, y_test, T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95 = normalize_descriptors(descriptors, y_train, y_test)
+        # Normalize targets with the 95th percentile of the training split only (BUG-04).
+        (y_train, y_val, y_test,
+         T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95) = normalize_descriptors(y_train, y_val, y_test)
 
         # Instantiate the model.
         blind_estimation_model = model(
@@ -171,7 +212,7 @@ def main(**kwargs):
         # Train the model.
         history = blind_estimation_model.fit(
             x=X_train, y=y_train,
-            validation_split=config['validation_split'],
+            validation_data=(X_val, y_val),
             batch_size=config['batch_size'],
             epochs=config['epochs'],
             callbacks=[early_stopping_callback]
@@ -197,8 +238,7 @@ def main(**kwargs):
         )
 
         # Delete large variables to free memory before next band iteration.
-        del db_train, db_test, tae_train, tae_test, descriptors, X_train, X_test, y_train, y_test
-        del descriptors_train, descriptors_test
+        del db_train, db_val, db_test, X_train, X_val, X_test, y_train, y_val, y_test
         del T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95
         del blind_estimation_model, history, predict, err_t30, err_c50, err_c80, err_d50
         gc.collect()

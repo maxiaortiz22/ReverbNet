@@ -49,11 +49,22 @@ can learn and that is absent in the field.
 ## Noise and SNR
 
 - Noise is added **broadband, before the filter bank** (BUG-03):
-  `x = y + a·n`, with `a = rms(y) / (rms(n) · 10^(SNR/20))`.
-- Document the SNR definition: today it is the RMS over the whole 5 s window (including
-  speech pauses). Changing it (e.g. RMS over active speech only) is a new experiment.
-- Pink noise: `colorednoise.powerlaw_psd_gaussian(1, n, random_state=rng)`, with an explicit
-  `rng` (never the global one).
+  `x = y + a·n`, with `a = rms(y) / (rms(n) · 10^(SNR/20))`. Use `code/mixing.py::mix_at_snr`
+  and `DataBaseGenerator._build_input_bands`; do not write new mixing code.
+- SNR definition: broadband mean power over the whole 5 s window (speech pauses included),
+  one draw per recording. Changing it (e.g. active speech only, A-weighting) is a new
+  experiment (DATA-09).
+- A broadband SNR does not mean the same SNR per band: with pink noise and speech, 4 kHz sits
+  ~15 dB and 8 kHz ~19 dB below the broadband value on average. The generator stores the
+  resulting per-band SNR in `snr_band`.
+- Noise color: `colored_noise(n, beta, rng=rng)` (power density ∝ 1/f^β; `pink_noise` = β 1).
+  Room background noise lies between pink (β = 1) and brown (β = 2); pink is the worst case for
+  2–8 kHz. The generator draws β per recording from `noise_beta` (DATA-09).
+- Per recording, the generator draws in this fixed order: clean/noisy (`clean_fraction`) → β →
+  SNR → noise realization, from a generator seeded with the project seed and the recording
+  name (`DataBaseGenerator._noise_rng`). Same seed + same recording = same noisy recording.
+- The TAE needs ~15 dB of SNR **per band** to resemble the clean one in the dB domain (r ≥ 0.9);
+  below ~5 dB it is mostly noise (DATA-09 analysis).
 - Verify the achieved SNR after mixing (`10·log10(P_y / P_an)` ≈ target ± 0.01 dB).
 
 ## Envelope (TAE)

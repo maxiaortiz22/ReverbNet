@@ -16,6 +16,7 @@ from .tr_lundeby import *
 from .pink_noise import *
 from .drr_augmentation import *
 from .tr_augmentation import *
+from .onset import find_onset, trim_to_onset
 
 # Export all public functions and classes.
 __all__ = [
@@ -27,12 +28,18 @@ __all__ = [
     
     # Pink noise
     'pink_noise',
+    'colored_noise',
     
     # DRR augmentation
     'drr_aug',
     'get_DRR',
+    'DrrAugmentationError',
     
     # TR augmentation
     'tr_augmentation',
-    'TrAugmentationError'
+    'TrAugmentationError',
+
+    # Direct-sound onset
+    'find_onset',
+    'trim_to_onset',
 ]

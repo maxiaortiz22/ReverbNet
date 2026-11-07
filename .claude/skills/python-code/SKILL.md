@@ -31,9 +31,14 @@ description: Conventions for writing and modifying Python code in ReverbNet (the
 
 ## Errors
 
-- `except Exception: continue` / `except: pass` are **forbidden**. Catch specific exceptions
-  (`NoiseError`, `TrAugmentationError`, `ValueError`) and **log** the discard with its reason
-  (BUG-05).
+- `except Exception: continue` / `except: pass` are **forbidden**. Catch only the specific,
+  expected failures and **count** each discard by reason (BUG-05). The generator's pattern:
+  a `collections.Counter` keyed `'<unit>:<reason>'` (`band:lundeby_noise`,
+  `tr_variant:tr_augmentation_<cause>`, `drr_variant:unrealizable`), returned by the worker
+  and summarized in `generation_summary.json`. Unexpected exceptions must propagate.
+- Domain failures get their own exception class (`NoiseError`, `TrAugmentationError` with
+  `.cause`, `DrrAugmentationError`); never wrap programming errors (`NameError`, `TypeError`,
+  `AttributeError`, `KeyError`) into them.
 - Validate inputs at the top of the function and raise `ValueError` with a clear message.
 - Do not use `assert` to validate data at runtime (it is disabled with `-O`); use
   `if ...: raise ValueError(...)`.
@@ -42,10 +47,17 @@ description: Conventions for writing and modifying Python code in ReverbNet (the
 
 ## Randomness and reproducibility
 
-- No global `np.random.*` and no `random.seed(time)`. Use `rng = np.random.default_rng(seed)`
-  and pass it explicitly as an `rng: np.random.Generator` parameter.
-- Derived, deterministic seeds for workers, e.g.
-  `np.random.default_rng([base_seed, zlib.crc32(rir_name.encode())])`.
+- **One project-wide seed**: the config's `seed` drives every random process. Never add a
+  second seed key to the configs.
+- No global `np.random.*` and no `random.seed(time)`. Pass an explicit
+  `rng: np.random.Generator` parameter.
+- Each random process has its own stream id in `RNG_STREAMS` (`code/random_streams.py`, helper `item_rng`).
+  Derive per-item generators from the seed, the stream id and the item identity:
+  `np.random.default_rng([seed, RNG_STREAMS['<process>'], zlib.crc32(item_name.encode())])`.
+  This keeps draws independent of processing order, multiprocessing and the rest of the file
+  list. Use `zlib.crc32`, never `hash()` (salted per process).
+- Add a new stream id for a new random process; never reuse or renumber an existing one, and
+  never reorder the draws inside a process (both change previously reproducible databases).
 - File listings are always sorted: `sorted(path.glob("*.wav"))` (BUG-06).
 
 ## Logging and output
