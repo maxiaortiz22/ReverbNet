@@ -230,6 +230,39 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   cross point. Alternatively, select for augmentation only RIRs that pass the analysis.
 - **Acceptance**: failure rate measured before/after on the 45 selected RIRs; augmented RIRs
   still reach their target T30 (check with `tr_lundeby`).
+- **Root cause**: in the Lundeby iteration the late-decay fit was searched from noise + 5 down
+  to noise − 5 (internal scale), i.e. *below* the noise floor, which a max-envelope rarely
+  reaches (`IndexError`). Lundeby fits a 10–20 dB range whose lower end lies 5–10 dB *above*
+  the noise. A non-decaying first fit gave a non-positive envelope window (`RuntimeError`).
+- **Resolution** (2026-11-07, branch `fix/BUG-01-causal-convolution`):
+  - The iteration fits from `noise + DISTANCIA_AL_PISO + RANGO_DINAMICO` down to
+    `noise + DISTANCIA_AL_PISO`; `get_valid_interval` runs to the end when the lower threshold
+    is never crossed and raises `ValueError` for empty/too-short intervals; fitted slopes must
+    be negative (`ValueError` otherwise); window ≥ 1 sample; cross points clamped.
+  - Outputs are checked: a non-finite (or all-zero) augmented RIR raises
+    `FloatingPointError` → counted as `tr_variant:tr_augmentation_FloatingPointError`. These
+    NaN RIRs used to reach the descriptor code and fail there silently.
+  - `tr_lundeby`: invalid input → `ValueError`; "no interval 10 dB above the noise" is now a
+    `NoiseError` (it was a `ValueError`, which would have stopped a v1 generation: found on
+    one augmented variant by running the full generator path on the 45 selected RIRs).
+  - Tests: `tests/test_tr_augmentation.py` (includes a band-filtered decay on which the old
+    code raised `IndexError`).
+- **Measured** (45 selected RIRs × 5 target RTs, analysis failures only): 130/225 (58 %) →
+  10/225 (4.4 %); the remaining failures are 2 RIRs whose fitted decay does not decay. On the
+  cases that already worked, the mid-band T30 error vs. the target is unchanged (median 23.8 %
+  → 24.2 %). That error does not affect the labels (they are measured on the augmented RIR);
+  the target only shapes the RT distribution.
+- **Remaining limitation**: lengthening a decay a lot overflows the rescaling exponential.
+  Non-finite outputs appear only for targets ≥ 1.7 s and grow to ~55 % of the RIRs at 3.0 s, so
+  augmented RIRs are biased towards short RTs (synthetic RIRs still cover long RTs uniformly).
+  Possible follow-up: cap the lengthening ratio per band, or synthesize the lengthened tail
+  instead of amplifying it.
+- **Full-path validation** (generator's `_augmented_variants` + `_rir_band_descriptors` on all
+  45 selected RIRs, 8 processes, 405 s): 4706 RIR variants (45 originals + 4661 augmented),
+  **0 unexpected exceptions**. Discards: `tr_variant:tr_augmentation_FloatingPointError` 303,
+  `tr_variant:tr_augmentation_ValueError` 58 (the 2 non-decaying RIRs × 29 targets),
+  `drr_variant:unrealizable` 158, `band:lundeby_noise` 87. So 944 of the 1305 TR variants
+  (72 %) are usable, against ~42 % of the RIRs before the fix.
 
 ---
 
@@ -386,7 +419,9 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   ≥ 45 dB of dynamic range; −60 dB is stricter than the standard requires.
 - **Proposal**: use −45 dB for v1 (T30 still valid per ISO). At 125 Hz no real RIR passes even
   then; consider T20 there, or report 125 Hz as synthetic-only.
-- **Decision**: pending with the maintainer.
+- **Decision** (2026-11-07, maintainer): −45 dB for v1. `configs/v1_base.py::make_config` now
+  defaults to `max_ruido_dB=-45`; the v0 configs keep their values. 125 Hz stays without real
+  RIRs (open question: T20 there, or report it as synthetic-only).
 
 ---
 

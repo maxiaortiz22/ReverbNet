@@ -131,3 +131,19 @@ Entries in chronological order, most recent **at the end**. Absolute dates
     at 500 Hz–1 kHz; −45 dB (the ISO minimum for T30) keeps all of them from 500 Hz up.
 - Rough cost of a full v1 database after CODE-01: ~20–30 min on 8 cores (to be confirmed).
 - Test suite: 100 passing tests.
+
+## 2026-11-07 — DATA-10 (−45 dB) and BUG-09 (TR augmentation)
+
+- **Decision** (maintainer): v1 uses the Lundeby criterion `max_ruido_dB = -45` (ISO minimum
+  for T30) instead of −60 dB; set as the default of `configs/v1_base.py::make_config`.
+- BUG-09 root cause: the Lundeby iteration inside `tr_augmentation` fitted the late decay below
+  the noise floor. Fixed to fit above it, with robust interval search and explicit errors.
+  TR-analysis failures on the 45 selected RIRs: 58 % → 4.4 %.
+- Running the full generator path (augmentation + descriptors) on all 45 selected RIRs
+  surfaced two more silent failures, now handled: NaN/inf augmented RIRs (overflow when
+  lengthening short decays a lot; counted as `FloatingPointError`) and a `ValueError` in
+  `lundeby` for missing dynamic range (now a `NoiseError`).
+- Known limitation recorded in BUG-09: augmented RIRs are biased towards short RTs because
+  long targets (≥ 1.7 s) often overflow.
+- Full-path validation after the fixes: 45 RIRs, 4706 variants, 0 unexpected exceptions; 72 % of
+  the TR variants are usable (details in BUG-09). Test suite: 113 passing tests.

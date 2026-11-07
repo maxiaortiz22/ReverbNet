@@ -18,6 +18,8 @@ Differences from the v0 (thesis) configs ``exp1.py`` … ``exp4.py``:
   same split, augmentation choice and noise (BUG-06, DATA-09).
 * Noisy variant (DATA-09): broadband SNR 0–40 dB, noise color β ∈ [1, 2] (pink to
   brown) and 20 % noise-free recordings.
+* Lundeby noise criterion −45 dB (DATA-10): the ISO 3382-1 minimum dynamic range for T30.
+  The thesis' −60 dB kept no real RIR at 125/250 Hz and only ~60 % at 500 Hz–1 kHz.
 
 The decisions behind these values are recorded in ``docs/improvements/``.
 """
@@ -30,7 +32,7 @@ DEV_TEST_ROOMS = ('classroom',)
 TEST_SPEAKERS = ('F4', 'M4', 'M9')
 
 
-def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-60):
+def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-45):
     """
     Build the full configuration dictionary of a v1 experiment.
 
@@ -42,8 +44,8 @@ def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-60)
         Whether to build the noisy variant of the database.
     test_rooms : sequence of str, default=('classroom',)
         Real rooms held out for testing (one per leave-one-room-out fold).
-    max_ruido_dB : float, default=-60
-        Lundeby noise acceptance criterion for the RIR descriptors.
+    max_ruido_dB : float, default=-45
+        Lundeby noise acceptance criterion for the RIR descriptors (DATA-10).
     """
     seed = SEED
 

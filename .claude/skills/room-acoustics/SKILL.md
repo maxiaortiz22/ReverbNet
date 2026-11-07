@@ -36,7 +36,11 @@ Normative reference: **ISO 3382-1** (performance spaces). Current implementation
   there is less data at 125 and 250 Hz.
 - Measured on the 468 real RIRs (DATA-10): at −60 dB none survive at 125/250 Hz and only
   278/312 at 500 Hz/1 kHz; at −45 dB all survive from 500 Hz up and 211 at 250 Hz; none at
-  125 Hz either way. −45 dB is the ISO minimum for T30, so −60 dB is stricter than needed.
+  125 Hz either way. −45 dB is the ISO minimum for T30, so −60 dB is stricter than needed;
+  the v1 configs use −45 dB (decision recorded in DATA-10).
+- "Not enough dynamic range above the noise" is always a `NoiseError` (an expected discard),
+  also when `lundeby` finds no interval 10 dB above the noise. `tr_lundeby` raises
+  `ValueError` only for invalid input (empty, all-zero or non-finite RIR), which is a bug.
 
 ## Reverberation time
 

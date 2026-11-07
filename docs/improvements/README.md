@@ -44,7 +44,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | BUG-06 | Reproducibility: per-iteration `random.sample`, clock-based seed, `os.listdir` order | P1 | 1 | done | `fix/BUG-01-causal-convolution` |
 | BUG-07 | `argmax(rir)` without `abs` to detect the direct sound | P2 | 1 | todo | |
 | BUG-08 | The `code` package shadows the stdlib `code` module (breaks `import tensorflow` from the root) | P1 | 1 | todo | |
-| BUG-09 | TR augmentation fails for 26 of the 45 selected real RIRs (`IndexError` in its Lundeby search) | P1 | 1 | todo | |
+| BUG-09 | TR augmentation fails for 26 of the 45 selected real RIRs (`IndexError` in its Lundeby search) | P1 | 1 | done | `fix/BUG-01-causal-convolution` |
 | DATA-01 | Derive D50 from C50 (deterministic relation) | P1 | 4 | todo | |
 | DATA-02 | Higher-resolution and/or dB TAE | P1 | 4 | todo | |
 | DATA-03 | More realistic synthetic RIRs (per-band T60, direct sound, early reflections) | P1 | 4 | todo | |
@@ -54,7 +54,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | DATA-07 | Real noise types and a clean/noisy mix | P2 | 4 | in progress | `fix/BUG-01-causal-convolution` (noise color + clean mix) |
 | DATA-08 | Filter influence on descriptors (zero-phase / time-reversed filtering, 8 kHz band) | P2 | 4 | todo | |
 | DATA-09 | Revisit the SNR range/definition: broadband −5…20 dB leaves 4–8 kHz bands at −24…+6 dB | P1 | 3 | done | `fix/BUG-01-causal-convolution` |
-| DATA-10 | Lundeby noise criterion for v1: −60 dB keeps no real RIR at 125/250 Hz and ~60 % at 500 Hz–1 kHz | P1 | 3 | todo | |
+| DATA-10 | Lundeby noise criterion for v1: −60 dB keeps no real RIR at 125/250 Hz and ~60 % at 500 Hz–1 kHz | P1 | 3 | done | `fix/BUG-01-causal-convolution` |
 | TRAIN-01 | One multi-band model instead of 7 networks | P1 | 4 | todo | |
 | TRAIN-02 | Higher-capacity architecture with global pooling | P2 | 4 | todo | |
 | TRAIN-03 | Z-score normalization with train stats, Huber/NLL loss with uncertainty | P1 | 4 | todo | |

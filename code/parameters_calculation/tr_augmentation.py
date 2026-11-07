@@ -182,14 +182,32 @@ def get_valid_interval(arr, init_value, final_value):
 
     Returns the clipped array segment and the corresponding sample indices.
     """
-    samples = np.arange(len(arr))
-    onset = np.where(arr < init_value)[0][0]
+    below_init = np.flatnonzero(arr < init_value)
+    if below_init.size == 0:
+        raise ValueError("The envelope never falls below the upper threshold of the interval")
+    onset = below_init[0]
     arr_aux = arr[onset:]
-    final = np.where(arr_aux < final_value)[0][0]
-    arr_aux2 = arr_aux[:final]
-    offset = len(arr) - len(arr_aux)
-    samples = samples[onset:(final + offset)]
-    return arr_aux2, samples
+    # If the lower threshold is never crossed, the valid interval runs to the end of the
+    # array (it used to raise IndexError, BUG-09).
+    below_final = np.flatnonzero(arr_aux < final_value)
+    final = below_final[0] if below_final.size else arr_aux.size
+    if final < 2:
+        raise ValueError("Valid decay interval has fewer than 2 samples")
+    samples = np.arange(onset, onset + final)
+    return arr_aux[:final], samples
+
+
+def _decaying_regression(n, arr):
+    """Linear fit of a decay; raises ValueError if the fitted slope does not decay."""
+    slope, intercept = linear_regression(n, arr)
+    if not slope < 0:
+        raise ValueError(f"Fitted decay slope is not negative ({slope:.3g} dB/sample)")
+    return slope, intercept
+
+
+def _clamp_index(index, length):
+    """Clamp a cross-point index into ``[1, length - 1]``."""
+    return int(min(max(index, 1), length - 1))
 
 
 def Lundeby_method(rir, fs):
@@ -225,30 +243,27 @@ def Lundeby_method(rir, fs):
     init_value = env_db.max()
     final_value = noise_floor_db + DISTANCIA_AL_PISO
     env_db_chunk, n_chunk = get_valid_interval(env_db, init_value, final_value)
-    slope, intercept = linear_regression(n_chunk, env_db_chunk)
-    cross_point = int((noise_floor_db - intercept) / slope)
-    time_interval = int((-10 / slope) / N_INTERVALOS_10DB)
+    slope, intercept = _decaying_regression(n_chunk, env_db_chunk)
+    cross_point = _clamp_index(int((noise_floor_db - intercept) / slope), len(env_db))
+    # Window with ~N_INTERVALOS_10DB steps per 10 dB of decay, at least one sample (a
+    # non-positive size used to raise "incorrect filter size", BUG-09).
+    time_interval = max(1, int((-10 / slope) / N_INTERVALOS_10DB))
     env = get_envelope(rir, time_interval)
     iteracion = 0
     delta_level = 1.0
     while iteracion < 6 and delta_level > 0.2:
-        if cross_point > len(env_db) - 1:
-            cross_level_1 = env_db[-1]
-        else:
-            cross_level_1 = env_db[cross_point]
+        cross_level_1 = env_db[cross_point]
         noise_floor_db = get_noise_level(cross_point, slope, env, DISTANCIA_AL_CRUCE)
-        init_value = noise_floor_db + DISTANCIA_AL_PISO
-        if init_value - RANGO_DINAMICO < np.min(env_db):
-            final_value = env_db[-2]
-        else:
-            final_value = init_value - RANGO_DINAMICO
+        # Lundeby: fit the late decay over a RANGO_DINAMICO-wide range whose lower end lies
+        # DISTANCIA_AL_PISO above the noise. The original code searched from noise + 5 down
+        # to noise − 5, i.e. below the noise floor, which a max-envelope rarely reaches; that
+        # raised IndexError for 24 of the 45 selected real RIRs (BUG-09).
+        final_value = noise_floor_db + DISTANCIA_AL_PISO
+        init_value = final_value + RANGO_DINAMICO
         env_db_chunk, n_chunk = get_valid_interval(env_db, init_value, final_value)
-        slope, intercept = linear_regression(n_chunk, env_db_chunk)
-        cross_point = int((noise_floor_db - intercept) / slope)
-        if cross_point > len(env_db) - 1:
-            cross_level_2 = env_db[-1]
-        else:
-            cross_level_2 = env_db[cross_point]
+        slope, intercept = _decaying_regression(n_chunk, env_db_chunk)
+        cross_point = _clamp_index(int((noise_floor_db - intercept) / slope), len(env_db))
+        cross_level_2 = env_db[cross_point]
         delta_level = abs(cross_level_1 - cross_level_2)
         iteracion += 1
     rir_cut = rir[:cross_point]
@@ -438,6 +453,10 @@ def tr_augmentation(rir_entrada, fs, TR_DESEADO, bp_filter, rng=None):
                                                    fs)
         rir_aug = np.sum(rir_band_augs, axis=0)
         rir_aug = np.concatenate((delay, early, rir_aug)).astype(np.float32)
+        # A near-zero fitted decay constant makes the rescaling exponential overflow; the
+        # resulting NaN/inf RIRs used to reach the descriptor code (BUG-09).
+        if not np.all(np.isfinite(rir_aug)) or not np.any(rir_aug):
+            raise FloatingPointError("Augmented RIR is not finite (or all zeros)")
         return rir_aug
     except (NameError, TypeError, AttributeError, KeyError):
         raise  # programming errors must surface (BUG-05)
