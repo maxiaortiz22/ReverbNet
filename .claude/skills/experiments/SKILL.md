@@ -58,8 +58,10 @@ python run.py --config configs/expN.py
   the folder (after confirming with the user) and run again.
 - After generating, read the discards in the summary and record the relevant ones in
   `experiments.md` (e.g. how many band records the Lundeby criterion removed per band).
-- Expected cost of one v1 database: roughly 20–30 min on 8 cores (estimate; replace it with
-  the measured time after the first run).
+- Measured cost of one v1 database (EXP-5, 8 cores): **~2 h** (real augmented RIRs ~1 h 15 min,
+  synthetic ~50 min). Training + evaluation of the 7 bands on CPU: **~10.5 h** (~10 s/epoch,
+  plus ~25 min per band of per-sample test prediction until TRAIN-07). Plan ~12.5 h per
+  experiment or LORO fold, and keep the machine awake.
 - For quick pipeline tests: a config with a small `sample_frac` and few epochs, with a test
   `exp_num` (e.g. 900+) that is deleted afterwards.
 
