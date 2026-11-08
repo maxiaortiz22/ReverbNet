@@ -153,8 +153,10 @@ def select_rirs_to_augment(rir_files: Iterable[str], per_room: int, seed: int) -
     Pick ``per_room`` real RIRs of each room for RT/DRR augmentation.
 
     Each file gets a reproducible random key from the seed and its name; the
-    ``per_room`` lowest keys of each room are selected. Augmented variants inherit the
-    split of their source RIR, so test-room augmentations stay in test.
+    ``per_room`` lowest keys of each room are selected independently, so dropping a room
+    does not change the selection of the others. Only training RIRs are augmented
+    (DATA-11): configs keep the training part of this selection and the generator never
+    augments a test RIR.
     """
     by_room: dict[str, list[str]] = {}
     for rir_file in rir_files:

@@ -11,7 +11,7 @@ project (`thesis/*.pdf`).
 Current pipeline:
 1. Anechoic speech (`data/Speech/{train,test}`) ⊛ RIRs (`data/RIRs`: 468 real ones from
    Great Hall, Octagon and Classroom + 2900 synthetic `sintetica_*`), with RT and DRR
-   augmentation on a subset of the real RIRs.
+   augmentation on a subset of the real training RIRs (never on test RIRs, DATA-11).
 2. Octave filter bank (`code/filters.py`, scipy SOS Butterworth).
 3. Descriptors of each band-filtered RIR (Lundeby + Schroeder for T30; C50/C80/D50 in C++,
    integrated from the broadband direct-sound onset since data pipeline v2).

@@ -264,3 +264,56 @@ tables 15–23 of the thesis and in `notebooks/exp*.ipynb`. Once the inference s
   - Synthetic RIRs are biased slightly high in C50/D50 (+0.5…+0.9 dB) at 250 Hz–4 kHz.
   - T30 at 500 Hz is biased high (+0.34…+0.42 s) in **every** subset, synthetic included, so it
     is a property of the 500 Hz model, not of the held-out room (open; TRAIN-04 territory).
+
+---
+
+### EXP-5 re-evaluation — baseline v1 under the DATA-11 test definition
+- **Date**: 2026-11-08.
+- **Branch / commit**: `fix/DATA-11-train-only-augmentation` (no retraining; same `results/exp5` models and predictions).
+- **Why it is valid**: DATA-11 (data pipeline v6) only stops augmenting test RIRs. For exp5 the
+  training RIRs, their augmentation (same 15 RIRs per training room), the source-RIR validation
+  split and the train p95 factors are identical, so a v6 run of exp5 would train the same model
+  (up to TF run-to-run nondeterminism) and its test set is exactly the original-RIR subset of the
+  EXP-5 test set: 1,040 original classroom records (130 RIRs; 576 at 250 Hz, none at 125 Hz) +
+  4,424 synthetic records (553 RIRs) per band.
+- **Command**: `python scripts/summarize_results.py --exp 5 --exclude augmented [--by rir_type]`.
+- **Results** (headline):
+
+| Band [Hz] | N test | Best epoch / total | T30 ρ / MAE [s] | C50 ρ / MAE [dB] | C80 ρ / MAE [dB] | D50 ρ / MAE [%] |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | 4424 | 109 / 209 | 0.836 / 0.36 | 0.610 / 2.60 | 0.725 / 2.43 | 0.656 / 10.88 |
+| 250 | 5000 | 388 / 488 | 0.874 / 0.30 | 0.703 / 1.86 | 0.804 / 1.71 | 0.737 / 8.52 |
+| 500 | 5464 | 178 / 278 | 0.884 / 0.40 | 0.755 / 1.53 | 0.843 / 1.35 | 0.769 / 7.17 |
+| 1000 | 5464 | 255 / 355 | 0.919 / 0.24 | 0.809 / 1.62 | 0.854 / 1.50 | 0.812 / 7.54 |
+| 2000 | 5464 | 485 / 500 | 0.943 / 0.21 | 0.866 / 1.40 | 0.880 / 1.41 | 0.851 / 6.63 |
+| 4000 | 5464 | 268 / 368 | 0.938 / 0.20 | 0.924 / 1.13 | 0.945 / 1.06 | 0.915 / 5.47 |
+| 8000 | 5464 | 364 / 464 | 0.962 / 0.19 | 0.940 / 1.16 | 0.948 / 1.21 | 0.941 / 5.69 |
+
+  Per RIR type (MAE / bias / % within JND):
+
+| Band [Hz] | rir_type | N | T30 MAE / bias [s] / ≤JND | C50 MAE / bias [dB] / ≤JND | C80 MAE / bias [dB] / ≤JND | D50 MAE / bias [%] / ≤JND |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | synthetic | 4424 | 0.36 / +0.04 / 14 % | 2.60 / -0.41 / 26 % | 2.43 / -0.21 / 28 % | 10.88 / +0.14 / 29 % |
+| 250 | real | 576 | 0.22 / +0.06 / 31 % | 1.64 / +0.46 / 44 % | 1.45 / +0.61 / 45 % | 7.61 / +3.72 / 44 % |
+| 250 | synthetic | 4424 | 0.31 / +0.11 / 17 % | 1.88 / +0.45 / 35 % | 1.74 / +0.38 / 38 % | 8.64 / +2.89 / 38 % |
+| 500 | real | 1040 | 0.44 / +0.42 / 12 % | 1.40 / -0.02 / 38 % | 1.12 / -0.16 / 51 % | 6.73 / +0.70 / 41 % |
+| 500 | synthetic | 4424 | 0.39 / +0.35 / 15 % | 1.56 / +0.71 / 40 % | 1.40 / +0.01 / 45 % | 7.27 / +2.83 / 42 % |
+| 1000 | real | 1040 | 0.29 / +0.21 / 19 % | 1.52 / +0.11 / 44 % | 1.35 / +0.08 / 46 % | 7.19 / +0.64 / 44 % |
+| 1000 | synthetic | 4424 | 0.22 / +0.15 / 26 % | 1.65 / +0.90 / 44 % | 1.54 / +0.43 / 45 % | 7.63 / +3.63 / 42 % |
+| 2000 | real | 1040 | 0.21 / +0.12 / 40 % | 1.12 / -0.22 / 52 % | 1.11 / -0.10 / 53 % | 5.74 / -0.47 / 52 % |
+| 2000 | synthetic | 4424 | 0.21 / +0.16 / 28 % | 1.47 / +0.74 / 39 % | 1.48 / +0.36 / 44 % | 6.83 / +3.39 / 41 % |
+| 4000 | real | 1040 | 0.23 / +0.13 / 15 % | 0.99 / -0.35 / 59 % | 0.79 / -0.22 / 70 % | 5.21 / -1.43 / 59 % |
+| 4000 | synthetic | 4424 | 0.19 / +0.09 / 27 % | 1.16 / +0.66 / 56 % | 1.12 / +0.43 / 59 % | 5.53 / +2.81 / 54 % |
+| 8000 | real | 1040 | 0.20 / +0.20 / 12 % | 2.32 / -2.26 / 15 % | 1.63 / -1.55 / 34 % | 11.90 / -11.47 / 16 % |
+| 8000 | synthetic | 4424 | 0.19 / +0.12 / 26 % | 0.89 / -0.55 / 67 % | 1.11 / -0.69 / 61 % | 4.23 / -2.36 / 69 % |
+
+- **Comparison with the EXP-5 headline table** (same models; only the test definition changed):
+  - C50 MAE drops in every band (e.g. 1 kHz 2.41 → 1.62 dB, 8 kHz 3.28 → 1.16 dB) and the bias
+    stays within −0.9…+0.8 dB, instead of being negative everywhere.
+  - Clarity ρ drops (C50 at 1 kHz 0.924 → 0.809, at 125 Hz 0.760 → 0.610): the DRR sweep of the
+    augmented records spread the C50 range and inflated the correlations.
+  - T30 is similar (MAE 0.19–0.40 s); the +0.36 s bias at 500 Hz remains.
+  - 125 Hz is synthetic-only: no original real RIR passes the Lundeby criterion (DATA-10).
+- **Conclusion**: this table replaces the EXP-5 headline table as **baseline v1 (clean,
+  development fold)**. New runs (pipeline v6) produce this test definition directly; compare
+  them against this entry, always together with the `--by rir_type` table.

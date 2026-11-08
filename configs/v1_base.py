@@ -20,6 +20,8 @@ Differences from the v0 (thesis) configs ``exp1.py`` … ``exp4.py``:
   brown) and 20 % noise-free recordings.
 * Lundeby noise criterion −45 dB (DATA-10): the ISO 3382-1 minimum dynamic range for T30.
   The thesis' −60 dB kept no real RIR at 125/250 Hz and only ~60 % at 500 Hz–1 kHz.
+* Augmentation only on training RIRs (DATA-11): the held-out room is tested on its original
+  RIRs only (EXP-5 had 56 % of its test records from DRR variants of 13 held-out RIRs).
 
 The decisions behind these values are recorded in ``docs/improvements/``.
 """
@@ -54,7 +56,12 @@ def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-45)
     rirs_for_training, rirs_for_testing = split_rirs(
         files_rirs, test_rooms=list(test_rooms), synthetic_test_fraction=0.2, seed=seed
     )
-    to_augmentate = select_rirs_to_augment(files_rirs, per_room=15, seed=seed)
+    # Only training RIRs are augmented (DATA-11): the test set holds original RIRs only.
+    # The per-room selection is independent across rooms, so the training rooms keep the
+    # same 15 RIRs as in EXP-5.
+    training = set(rirs_for_training)
+    to_augmentate = [f for f in select_rirs_to_augment(files_rirs, per_room=15, seed=seed)
+                     if f in training]
     files_speech_train, files_speech_test = split_speech(
         list_speech_files('data/Speech'), test_speakers=list(TEST_SPEAKERS)
     )

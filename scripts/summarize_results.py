@@ -19,6 +19,7 @@ Usage
 -----
     python scripts/summarize_results.py --exp 1 2 3 4
     python scripts/summarize_results.py --exp 5 --by rir_type
+    python scripts/summarize_results.py --exp 5 --exclude augmented
 
 Notes
 -----
@@ -55,17 +56,33 @@ from code.metrics import (  # noqa: E402
 
 BANDS = (125, 250, 500, 1000, 2000, 4000, 8000)
 GROUPINGS = ("all", "rir_type", "room", "speaker", "augmentation")
+RIR_TYPES = ("real", "augmented", "synthetic")
 
 
-def load_band(path: Path) -> dict:
+def load_band(path: Path, exclude: tuple[str, ...] = ()) -> dict:
     """
     Load one ``results_<band>.pickle`` with predictions and targets in physical units.
+
+    Parameters
+    ----------
+    path : Path
+        ``results/exp<N>/results_<band>.pickle``.
+    exclude : tuple of str, default=()
+        RIR types (``'real'``, ``'augmented'``, ``'synthetic'``) whose records are dropped,
+        e.g. to evaluate runs generated before DATA-11 without the augmented test records.
+        Needs test metadata.
 
     Returns
     -------
     dict
         The stored results plus ``pred`` and ``true`` (ndarray, shape (n, 4), physical
-        units) and ``metadata`` (DataFrame or ``None`` when no metadata is available).
+        units) and ``metadata`` (DataFrame or ``None`` when no metadata is available),
+        restricted to the records that were not excluded.
+
+    Raises
+    ------
+    ValueError
+        If the metadata length does not match, or ``exclude`` is given without metadata.
     """
     with open(path, "rb") as handle:
         res = pickle.load(handle)
@@ -81,13 +98,20 @@ def load_band(path: Path) -> dict:
     if metadata is not None and len(metadata) != len(res["true"]):
         raise ValueError(
             f"{path}: metadata has {len(metadata)} rows for {len(res['true'])} records")
+    if exclude:
+        if metadata is None:
+            raise ValueError(f"{path} has no test metadata; run scripts/recover_test_metadata.py "
+                             "first to use --exclude")
+        keep = ~metadata["rir_type"].isin(exclude).to_numpy()
+        res["pred"], res["true"] = res["pred"][keep], res["true"][keep]
+        metadata = metadata[keep].reset_index(drop=True)
     res["metadata"] = metadata
     return res
 
 
-def summarize_band(path: Path) -> dict:
+def summarize_band(path: Path, exclude: tuple[str, ...] = ()) -> dict:
     """Return the headline metrics (ρ, MAE, convergence) of one band."""
-    res = load_band(path)
+    res = load_band(path, exclude)
     metrics = {
         "n": len(res["true"]),
         "best_epoch": int(res["best_epoch"]),
@@ -101,7 +125,7 @@ def summarize_band(path: Path) -> dict:
     return metrics
 
 
-def markdown_table(exp_num: str, results_dir: Path) -> str:
+def markdown_table(exp_num: str, results_dir: Path, exclude: tuple[str, ...] = ()) -> str:
     """Build the headline Markdown table for one experiment."""
     header = ["Band [Hz]", "N test", "Best epoch / total"]
     header += [f"{d} ρ / MAE [{u}]" for d, u in zip(DESCRIPTORS, UNITS)]
@@ -111,14 +135,15 @@ def markdown_table(exp_num: str, results_dir: Path) -> str:
         path = results_dir / f"exp{exp_num}" / f"results_{band}.pickle"
         if not path.exists():
             continue
-        m = summarize_band(path)
+        m = summarize_band(path, exclude)
         row = [str(band), str(m["n"]), f"{m['best_epoch']} / {m['total_epochs']}"]
         row += [f"{m[f'{d}_rho']:.3f} / {m[f'{d}_mae']:.2f}" for d in DESCRIPTORS]
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
 
 
-def breakdown_table(exp_num: str, results_dir: Path, by: str) -> str:
+def breakdown_table(exp_num: str, results_dir: Path, by: str,
+                    exclude: tuple[str, ...] = ()) -> str:
     """
     Build the detailed Markdown table (N, MAE / bias / % within JND) per band and group.
 
@@ -135,7 +160,7 @@ def breakdown_table(exp_num: str, results_dir: Path, by: str) -> str:
         path = results_dir / f"exp{exp_num}" / f"results_{band}.pickle"
         if not path.exists():
             continue
-        res = load_band(path)
+        res = load_band(path, exclude)
         if by == "all":
             groups = None
         elif res["metadata"] is None:
@@ -161,17 +186,22 @@ def main() -> None:
     parser.add_argument("--by", choices=GROUPINGS,
                         help="Print the detailed table (MAE / bias / %% within JND) "
                              "grouped by this field.")
+    parser.add_argument("--exclude", nargs="+", default=[], choices=RIR_TYPES,
+                        help="Drop test records of these RIR types (e.g. augmented, for runs "
+                             "generated before DATA-11). Needs test metadata.")
     args = parser.parse_args()
+    exclude = tuple(args.exclude)
 
     # Windows consoles default to cp1252, which cannot encode "ρ".
     sys.stdout.reconfigure(encoding="utf-8")
 
     for exp_num in args.exp:
-        print(f"\n#### exp{exp_num}\n")
+        suffix = f" (without {', '.join(exclude)} test records)" if exclude else ""
+        print(f"\n#### exp{exp_num}{suffix}\n")
         if args.by:
-            print(breakdown_table(exp_num, args.results_dir, args.by))
+            print(breakdown_table(exp_num, args.results_dir, args.by, exclude))
         else:
-            print(markdown_table(exp_num, args.results_dir))
+            print(markdown_table(exp_num, args.results_dir, exclude))
 
 
 if __name__ == "__main__":

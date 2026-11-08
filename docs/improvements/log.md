@@ -190,3 +190,20 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   - Original real classroom RIRs are unbiased from 250 Hz to 4 kHz (C50 MAE 1.0–1.6 dB).
   - 8 kHz is biased on real RIRs only → evidence added to DATA-08.
 - Next: decide DATA-11 before exp6 / LORO, since it changes what those runs report.
+
+## 2026-11-08 — DATA-11: augmentation only on training RIRs
+
+- **Decision** (maintainer): option (b) of DATA-11. Augmentation is a training device; the test
+  set holds original real and synthetic RIRs only.
+- Implemented on branch `fix/DATA-11-train-only-augmentation`: `configs/v1_base.py` keeps the training part of the
+  augmentation selection, `DataBaseGenerator._should_augment` refuses test RIRs,
+  `DATA_PIPELINE_VERSION` → 6, `summarize_results.py --exclude <rir_type>`. 132 passing tests.
+- Checked that the training rooms keep the same 15 augmented RIRs (selection is per room), so
+  EXP-5's training data is unchanged. **Decision**: re-evaluate EXP-5 on its original-RIR test
+  records instead of retraining; that table is now **baseline v1** (EXP-5 re-evaluation in
+  [experiments.md](experiments.md)). C50 MAE on the new definition: 1.1–2.6 dB, bias within
+  −0.9…+0.8 dB.
+- The dv5 cache of exp5 (5.6 GB) no longer matches any config (the v6 name differs); keep it until
+  the maintainer decides to delete it.
+- Next: exp6 (noisy) or the clean LORO folds, both with pipeline v6 (~10 h each now that
+  TRAIN-07 removed ~3 h of per-sample prediction; to be measured).

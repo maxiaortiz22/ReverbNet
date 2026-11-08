@@ -37,6 +37,9 @@ description: Workflow for running, recording and comparing ReverbNet experiments
 - New experiments use `configs/v1_base.py::make_config(exp_num, add_noise, test_rooms=...)`;
   each config file is three lines. Never copy the split logic into a config again.
 - All v1 configs use the Lundeby criterion `max_ruido_dB = -45` (DATA-10).
+- Only training RIRs are augmented (DATA-11, data pipeline v6): the test set holds original
+  real and synthetic RIRs only. For runs generated before v6 (EXP-5), compare with
+  `summarize_results.py --exclude augmented`.
 - `exp5` (clean) and `exp6` (noisy) hold out `classroom`. Their leave-one-room-out folds are
   `exp5_great_hall`, `exp5_octagon`, `exp6_great_hall`, `exp6_octagon`, with string ids
   (results in `results/exp5_octagon`, …; `summarize_results.py --exp 5 5_octagon` accepts them).

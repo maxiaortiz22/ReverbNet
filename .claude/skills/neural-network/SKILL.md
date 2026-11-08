@@ -22,7 +22,8 @@ description: Rules for writing, training and evaluating ReverbNet models (1D CNN
 1. **Group splits, never per-record splits** (BUG-04, implemented in `code/splits.py`):
    - Real RIRs: by **room** (great_hall / octagon / classroom). Development split holds out
      `classroom`; milestone baselines run leave-one-room-out folds.
-   - Augmented RIRs: go to the same split as their source RIR.
+   - Augmented RIRs: **training only** (DATA-11). Test RIRs are never augmented; the test
+     set holds original real and synthetic RIRs only.
    - Synthetic RIRs: per file (20 % to test).
    - Speech: by **speaker** (`F4`, `M4`, `M9` in test).
    - Validation: `validation_mask` by source RIR (same decision in every band), passed as
