@@ -318,6 +318,11 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   an octave).
 - **Proposal**: for RIR descriptors, time-reversed or zero-phase filtering (check
   Jacobsen's B·T > 16 criterion). Document the 8 kHz band or raise fs.
+- **Evidence** (2026-11-08, EXP-5 per-subset breakdown): 8 kHz is the only band where the
+  original real classroom RIRs are clearly biased (C50 −2.26 dB, C80 −1.55 dB, D50 −11.5 %;
+  250 Hz–4 kHz stay within ±0.5 dB / ±3.7 %), while synthetic RIRs are not (C50 −0.55 dB).
+  Hypothesis, not tested: the half-octave 8 kHz band interacts with the early energy of real
+  rooms differently than with the synthetic RIRs.
 
 ### DATA-09 — Revisit the SNR range and definition
 - **Files**: `configs/exp*.py` (`snr`), `code/mixing.py`, `code/generate_database.py`.
@@ -428,6 +433,28 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 
 ---
 
+### DATA-11 — Test set dominated by augmented variants of a few held-out RIRs
+- **Files**: `code/generate_database.py` (`_augmented_variants`, test records),
+  `code/splits.py` (`select_rirs_to_augment`), `scripts/summarize_results.py`.
+- **Problem**: augmented RIRs go to the split of their source RIR (BUG-04), so the
+  augmented variants of the held-out room are test records. Each augmented RIR yields ~100
+  variants (TR 0.2–3.0 s and DRR −6…+18 dB sweeps), so a few source RIRs dominate the test
+  set and the headline metrics measure mostly the DRR sweep of those RIRs, not real rooms.
+- **Evidence** (2026-11-08, EXP-5, metadata recovered with `scripts/recover_test_metadata.py`):
+  per band (≥ 500 Hz) the test set holds ~9,780 DRR-augmented records from **13** classroom
+  RIRs (56 %), ~2,240 TR-augmented from the same 13, 1,040 original real records from 130
+  classroom RIRs (6 %) and 4,424 synthetic from 553 RIRs. At 125 Hz there are no original real
+  records at all (only augmented ones pass Lundeby). The DRR variants have much higher C50
+  (mean 6.5 / 8.5 / 14.6 dB at 0.5 / 1 / 8 kHz vs. −3.2 / −2.3 / +0.8 dB for the originals) and
+  carry the negative clarity bias of the headline table (C50 bias −1.8 / −1.5 / −4.4 dB), while
+  the original real RIRs are unbiased from 250 Hz to 4 kHz (−0.35…+0.46 dB, MAE 1.0–1.6 dB).
+- **Proposal** (decision pending): (a) report the original real RIRs of the held-out room
+  as the headline metric and the other subsets separately; (b) keep augmented variants out of
+  the test set (augmentation is a training device; test only on measured and synthetic
+  RIRs); or (c) weight records so that each source RIR counts once.
+- **Acceptance**: `experiments.md` headline metrics are not dominated by any single subset,
+  and the choice is recorded in `log.md`.
+
 ## TRAIN — Model and training
 
 ### TRAIN-01 — Multi-band model
@@ -469,6 +496,11 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Evidence** (2026-11-08, EXP-5): the per-sample loop (`code/model.py:213`) takes ~25 min
   per band for ~17,500 test records (measured on 125 Hz), ~3 h of the 10 h 25 min of training
   + evaluation, and writes one Keras progress bar per sample (`train.log` grows to 79 MB).
+- **Resolution** (2026-11-08, branch `feat/TRAIN-07-08-batched-prediction-metrics`): `code/model.py::prediction` makes one
+  `predict(X, batch_size=config['batch_size'], verbose=0)` call and returns an unrounded
+  `(n, 4)` array; `descriptors_err` is vectorized and unrounded. Smoke run (500 Hz, 2 % of the
+  EXP-5 records, 2 epochs): `run.py` finished with a 2.7 KB log. Runs after this change are not
+  affected by the 2-decimal quantization of `summarize_results.py` (older runs still are).
 
 ### TRAIN-08 — Metrics
 - **Proposal**: MAE, RMSE, bias, Pearson and Spearman in physical units; % within JND;
@@ -480,6 +512,19 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   vs. held-out synthetic RIRs) is impossible today: `save_exp_data` stores `X_test`, `y_test`
   and predictions but no RIR/speech names or record type. Store them (e.g. the
   `ReverbedAudio` and `type_data` columns of the test records) alongside the predictions.
+- **Resolution** (2026-11-08, branch `feat/TRAIN-07-08-batched-prediction-metrics`):
+  - `code/metrics.py`: `record_metadata` / `build_test_metadata` (speech, speaker, source RIR,
+    room, RIR type real/augmented/synthetic, augmentation tag, DRR/SNR columns),
+    `descriptor_metrics` (MAE, RMSE, bias, Pearson, Spearman, % within JND: T30 5 % relative,
+    C50/C80 1 dB, D50 5 points) and `metrics_by_group`.
+  - `run.py` stores the test metadata in each `results_<band>.pickle` (`test_metadata`).
+  - `scripts/summarize_results.py --by {all,rir_type,room,speaker,augmentation}` prints MAE /
+    bias / % within JND per group; the default table is byte-identical to before (exp1–5).
+  - `scripts/recover_test_metadata.py` rebuilds the metadata of older runs with the same
+    reading path as `run.py`, verifies `X_test`/`y_test` exactly, and writes
+    `test_metadata_<band>.pickle` next to the results (existing artifacts untouched). Done for
+    EXP-5 (all 7 bands verified). The breakdown found DATA-11.
+  - Tests: `tests/test_metrics.py`, `tests/test_prediction.py` (128 passing in total).
 
 ---
 

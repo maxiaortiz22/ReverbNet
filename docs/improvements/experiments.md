@@ -203,3 +203,64 @@ tables 15–23 of the thesis and in `notebooks/exp*.ipynb`. Once the inference s
   claims need the leave-one-room-out folds (`exp5_great_hall`, `exp5_octagon`) as well.
   Before reading more into the bias, add the per-subset/per-room metrics of TRAIN-08; making
   prediction batched (TRAIN-07) would also save ~3 h per run.
+
+---
+
+### EXP-5 addendum — per-subset breakdown of baseline v1 (TRAIN-08)
+- **Date**: 2026-11-08.
+- **Branch / commit**: `feat/TRAIN-07-08-batched-prediction-metrics` (metadata recovery and metrics code; no retraining).
+- **Method**: `python scripts/recover_test_metadata.py --config configs/exp5.py` rebuilt the
+  test records of every band with the same reading path as `run.py` and checked them against
+  the stored `X_test`/`y_test` (exact match, 7/7 bands). Tables with
+  `python scripts/summarize_results.py --exp 5 --by rir_type`. The headline EXP-5 table above
+  is unchanged.
+- **Test composition** (≥ 500 Hz, per band): ~9,780 DRR-augmented + ~2,240 TR-augmented records
+  from **13** classroom RIRs (69 %), 1,040 original classroom records from 130 RIRs (6 %),
+  4,424 synthetic records from 553 RIRs (25 %). 125 Hz has no original real records; 250 Hz
+  has 576.
+- **Results** (MAE / bias / % of records within the JND):
+
+| Band [Hz] | rir_type | N | T30 MAE / bias [s] / ≤JND | C50 MAE / bias [dB] / ≤JND | C80 MAE / bias [dB] / ≤JND | D50 MAE / bias [%] / ≤JND |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | augmented | 12024 | 0.48 / -0.22 / 8 % | 4.46 / -2.31 / 14 % | 4.48 / -2.51 / 15 % | 16.49 / -8.24 / 18 % |
+| 125 | synthetic | 4424 | 0.36 / +0.04 / 14 % | 2.60 / -0.41 / 26 % | 2.43 / -0.21 / 28 % | 10.88 / +0.14 / 29 % |
+| 250 | augmented | 12040 | 0.28 / +0.05 / 17 % | 2.37 / -0.84 / 26 % | 2.11 / -1.03 / 32 % | 10.43 / -3.65 / 30 % |
+| 250 | real | 576 | 0.22 / +0.06 / 31 % | 1.64 / +0.46 / 44 % | 1.45 / +0.61 / 45 % | 7.61 / +3.72 / 44 % |
+| 250 | synthetic | 4424 | 0.31 / +0.11 / 17 % | 1.88 / +0.45 / 35 % | 1.74 / +0.38 / 38 % | 8.64 / +2.89 / 38 % |
+| 500 | augmented | 11992 | 0.40 / +0.34 / 16 % | 2.12 / -1.47 / 27 % | 2.15 / -1.74 / 29 % | 8.62 / -6.26 / 31 % |
+| 500 | real | 1040 | 0.44 / +0.42 / 12 % | 1.40 / -0.02 / 38 % | 1.12 / -0.16 / 51 % | 6.73 / +0.70 / 41 % |
+| 500 | synthetic | 4424 | 0.39 / +0.35 / 15 % | 1.56 / +0.71 / 40 % | 1.40 / +0.01 / 45 % | 7.27 / +2.83 / 42 % |
+| 1000 | augmented | 12032 | 0.22 / +0.10 / 22 % | 2.76 / -1.19 / 21 % | 2.64 / -1.28 / 22 % | 8.72 / -4.72 / 35 % |
+| 1000 | real | 1040 | 0.29 / +0.21 / 19 % | 1.52 / +0.11 / 44 % | 1.35 / +0.08 / 46 % | 7.19 / +0.64 / 44 % |
+| 1000 | synthetic | 4424 | 0.22 / +0.15 / 26 % | 1.65 / +0.90 / 44 % | 1.54 / +0.43 / 45 % | 7.63 / +3.63 / 42 % |
+| 2000 | augmented | 12024 | 0.25 / +0.00 / 22 % | 2.29 / -1.57 / 32 % | 2.31 / -1.61 / 34 % | 7.26 / -5.16 / 46 % |
+| 2000 | real | 1040 | 0.21 / +0.12 / 40 % | 1.12 / -0.22 / 52 % | 1.11 / -0.10 / 53 % | 5.74 / -0.47 / 52 % |
+| 2000 | synthetic | 4424 | 0.21 / +0.16 / 28 % | 1.47 / +0.74 / 39 % | 1.48 / +0.36 / 44 % | 6.83 / +3.39 / 41 % |
+| 4000 | augmented | 12032 | 0.29 / +0.05 / 17 % | 2.22 / -0.99 / 33 % | 2.05 / -0.98 / 39 % | 6.12 / -3.86 / 57 % |
+| 4000 | real | 1040 | 0.23 / +0.13 / 15 % | 0.99 / -0.35 / 59 % | 0.79 / -0.22 / 70 % | 5.21 / -1.43 / 59 % |
+| 4000 | synthetic | 4424 | 0.19 / +0.09 / 27 % | 1.16 / +0.66 / 56 % | 1.12 / +0.43 / 59 % | 5.53 / +2.81 / 54 % |
+| 8000 | augmented | 12024 | 0.25 / -0.01 / 14 % | 4.24 / -4.22 / 5 % | 4.28 / -4.24 / 9 % | 11.47 / -11.45 / 14 % |
+| 8000 | real | 1040 | 0.20 / +0.20 / 12 % | 2.32 / -2.26 / 15 % | 1.63 / -1.55 / 34 % | 11.90 / -11.47 / 16 % |
+| 8000 | synthetic | 4424 | 0.19 / +0.12 / 26 % | 0.89 / -0.55 / 67 % | 1.11 / -0.69 / 61 % | 4.23 / -2.36 / 69 % |
+
+  C50 split of the augmented records (mean true vs. predicted C50 [dB], bias [dB]):
+
+  | Band [Hz] | DRR-augmented | TR-augmented | Original real | Synthetic |
+  | --- | --- | --- | --- | --- |
+  | 500 | 6.54 vs 4.75, −1.79 | −0.59 vs −0.67, −0.07 | −3.15 vs −3.16, −0.02 | −1.65 vs −0.94, +0.71 |
+  | 1000 | 8.46 vs 6.98, −1.47 | 0.84 vs 0.91, +0.07 | −2.25 vs −2.13, +0.11 | −1.40 vs −0.50, +0.90 |
+  | 8000 | 14.55 vs 10.10, −4.44 | 4.35 vs 1.09, −3.26 | 0.83 vs −1.43, −2.26 | −1.23 vs −1.77, −0.55 |
+
+- **Conclusion**:
+  - The negative clarity bias of the headline table comes from the **DRR-augmented variants**
+    of 13 held-out RIRs, which are 56 % of the test records and have far higher C50 than
+    anything else; the model compresses them towards the mean. This is a test-composition
+    problem → new item **DATA-11**.
+  - On the **original real classroom RIRs** the model is unbiased from 250 Hz to 4 kHz
+    (C50 −0.35…+0.46 dB) with C50 MAE 1.0–1.6 dB (59 % within the JND at 4 kHz). These
+    are the numbers closest to the use case.
+  - **8 kHz** is biased low on every real subset (original real C50 −2.26 dB, D50 −11.5 %),
+    not on synthetic RIRs → evidence added to DATA-08.
+  - Synthetic RIRs are biased slightly high in C50/D50 (+0.5…+0.9 dB) at 250 Hz–4 kHz.
+  - T30 at 500 Hz is biased high (+0.34…+0.42 s) in **every** subset, synthetic included, so it
+    is a property of the 500 Hz model, not of the held-out room (open; TRAIN-04 territory).
