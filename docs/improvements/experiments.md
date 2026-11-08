@@ -104,3 +104,102 @@ T30 5 %, C50 1 dB, C80 1 dB, D50 5 %.
 Comparisons against in-situ measurements (3 rooms, 2 positions, REW reference) are in
 tables 15–23 of the thesis and in `notebooks/exp*.ipynb`. Once the inference script exists
 (CODE-06), record the per-band differences against the measured RIR here.
+
+---
+
+### EXP-5 — Baseline v1: clean data, classroom held out (development fold)
+- **Date**: 2026-11-07 19:18 → 2026-11-08 07:46 (UTC−3).
+- **Branch / commit**: `exp/exp5-baseline-v1` @ `dd30f73` (= `main` after PR #7; clean tree).
+- **Command**: `PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8 python run.py --config configs/exp5.py`
+  (env `ReverbNet`, from the repo root; log in `results/exp5/train.log`, run metadata in
+  `results/exp5/run_info.txt`).
+- **Config**: `configs/exp5.py` → `configs/v1_base.py::make_config(exp_num=5, add_noise=False)`:
+  seed 2222, Lundeby criterion −45 dB, test room `classroom` + 20 % of the synthetic RIRs,
+  test speakers F4/M4/M9, validation by source RIR (10 %), thesis architecture, batch 1024,
+  500 epochs, early stopping (patience 100).
+- **Database**: `cache/data_base_-45_noise_False_traug_0.2_3.1_0.1_drraug_-6_19_1_snr_0_40_beta_1.0_2.0_clean_0.2_seed_2222_files_89442dc172_dv5`
+  (data pipeline v5): 3368 RIRs → 1,331,112 band records in 27 partitions, 5.6 GB.
+- **Discards** (`generation_summary.json`):
+
+  | Reason | Unit | Count |
+  | --- | --- | --- |
+  | `band:lundeby_noise` | band record (speech × variant × band) | 18,026 |
+  | `tr_variant:tr_augmentation_FloatingPointError` | whole TR variant | 303 |
+  | `tr_variant:tr_augmentation_ValueError` | whole TR variant | 58 |
+  | `drr_variant:unrealizable` | whole DRR variant | 158 |
+
+  Lundeby discards per band (192,734 possible records per band minus the records used):
+  125 Hz 11,376 (5.9 %) · 250 Hz 6,464 (3.4 %) · 500 Hz 48 · 1 kHz 68 · 2 kHz 16 · 4 kHz 8 ·
+  8 kHz 46. Per the DATA-10 survey, no original real RIR passes −45 dB at 125 Hz, so the
+  125 Hz test set is essentially synthetic-only; at 250 Hz only part of the real RIRs remain.
+- **Records per band** (train / validation / test): 125 Hz 147,570 / 17,340 / 16,448 ·
+  250 Hz 151,290 / 17,940 / 17,040 · 500 Hz 156,810 / 18,420 / 17,456 ·
+  1 kHz 156,750 / 18,420 / 17,496 · 2 kHz 156,810 / 18,420 / 17,488 ·
+  4 kHz 156,810 / 18,420 / 17,496 · 8 kHz 156,780 / 18,420 / 17,488.
+- **Wall-clock time** (8 cores, CPU only):
+  - Database generation: **2 h 03 min** (19:18 → 21:21). The 468 real RIRs (with TR/DRR
+    augmentation) took ~1 h 15 min (~6 RIRs/min); the 2900 synthetic ones ~50 min
+    (~55 RIRs/min). The earlier 20–30 min estimate (CODE-01) was 4–6× too low.
+  - Training + evaluation of the 7 bands: **10 h 25 min** (21:21 → 07:46). Per band
+    (load + fit + predict): 125 Hz 64 min · 250 Hz 102 · 500 Hz 63 · 1 kHz 81 · 2 kHz 112 ·
+    4 kHz 91 · 8 kHz 112. Fitting runs at ~10 s/epoch; the sample-by-sample test prediction
+    (TRAIN-07) takes ~25 min per band (measured on 125 Hz), i.e. ~3 h of the total.
+  - Total: **12 h 28 min**.
+- **Changes vs.**: baseline v0 (exp1, the closest v0 run: clean, Lundeby −60 dB) — every
+  fix of phase 1–3: causal convolution (BUG-01), C50/C80/D50 from the direct-sound onset
+  (BUG-02), group-aware splits by room/speaker/source RIR and train-only normalization
+  (BUG-04), explicit discards and zero-padded short speech (BUG-05), reproducible
+  augmentation built once per RIR (BUG-06, CODE-01), fixed TR augmentation (BUG-09), Lundeby
+  −45 dB (DATA-10). Same architecture and training hyper-parameters as the thesis.
+- **Results**:
+
+| Band [Hz] | N test | Best epoch / total | T30 ρ / MAE [s] | C50 ρ / MAE [dB] | C80 ρ / MAE [dB] | D50 ρ / MAE [%] |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | 16448 | 109 / 209 | 0.792 / 0.45 | 0.760 / 3.96 | 0.798 / 3.93 | 0.775 / 14.98 |
+| 250 | 17040 | 388 / 488 | 0.892 / 0.29 | 0.871 / 2.22 | 0.914 / 1.99 | 0.879 / 9.87 |
+| 500 | 17456 | 178 / 278 | 0.904 / 0.40 | 0.933 / 1.93 | 0.953 / 1.90 | 0.932 / 8.17 |
+| 1000 | 17496 | 255 / 355 | 0.943 / 0.23 | 0.924 / 2.41 | 0.944 / 2.29 | 0.918 / 8.35 |
+| 2000 | 17488 | 485 / 500 | 0.933 / 0.23 | 0.953 / 2.01 | 0.961 / 2.03 | 0.944 / 7.06 |
+| 4000 | 17496 | 268 / 368 | 0.909 / 0.26 | 0.973 / 1.88 | 0.981 / 1.74 | 0.939 / 5.92 |
+| 8000 | 17488 | 364 / 464 | 0.882 / 0.23 | 0.977 / 3.28 | 0.979 / 3.32 | 0.966 / 9.67 |
+
+  Signed bias (mean of prediction − target, physical units; computed from the same pickles):
+
+  | Band [Hz] | T30 [s] | C50 [dB] | C80 [dB] | D50 [%] |
+  | --- | --- | --- | --- | --- |
+  | 125 | −0.15 | −1.80 | −1.89 | −5.99 |
+  | 250 | +0.06 | −0.46 | −0.61 | −1.70 |
+  | 500 | +0.35 | −0.83 | −1.20 | −3.54 |
+  | 1000 | +0.12 | −0.58 | −0.77 | −2.29 |
+  | 2000 | +0.05 | −0.91 | −1.03 | −2.72 |
+  | 4000 | +0.06 | −0.54 | −0.58 | −2.03 |
+  | 8000 | +0.04 | −3.18 | −3.18 | −9.16 |
+
+- **Comparison with v0 (exp1)** — **not directly comparable**: the test set changed from a
+  random per-record split (rooms and speakers shared with train) to a held-out room
+  (`classroom`) plus held-out synthetic RIRs and speakers (~2.4× more test records), the
+  Lundeby criterion changed (−60 → −45 dB) and C50/C80/D50 are now defined from the
+  direct-sound onset, which shifts their distribution (mean test C50 per band: v0 −2.6…+2.3 dB,
+  v1 +1.3…+8.4 dB). Differences below describe the new reference, they do not measure a
+  regression or an improvement of the model.
+  - **T30**: ρ is lower in every band (0.79–0.94 vs. 0.83–0.98) and MAE higher (0.23–0.45 s vs.
+    0.13–0.41 s). Expected: v0 benefited from the RT leak of BUG-01 and from seeing the test
+    rooms in training.
+  - **C50 / C80 / D50**: ρ is higher at 125–500 Hz (C50 0.76 / 0.87 / 0.93 vs. 0.68 / 0.73 /
+    0.83) and similar or higher from 1 kHz up, but MAE is higher in every band (C50
+    1.9–4.0 dB vs. 1.2–3.0 dB). No band reaches the JND (1 dB for C50/C80, 5 % for D50).
+  - **Systematic under-estimation of the clarity descriptors**: C50/C80/D50 are biased low in
+    every band. At 8 kHz the bias is almost the whole error (C50 −3.18 of 3.28 dB MAE, D50
+    −9.2 of 9.7 %) while ρ stays at 0.98, so the ranking is right and the offset is wrong.
+    T30 at 500 Hz is biased high (+0.35 of 0.40 s MAE). This is not explained by test targets
+    beyond the training p95 (≤ 9 % of the test records exceed it). Hypothesis: the held-out
+    room differs from the training distribution in those bands; checking it needs a per-subset
+    breakdown (classroom real vs. synthetic test RIRs), which the results pickles do not allow
+    because they store no RIR names (TRAIN-08).
+  - **Convergence**: early stopping now triggers in 6 of 7 bands (best epoch 109–388), whereas
+    in v0 it almost never did. 2 kHz still peaked at epoch 485/500 (TRAIN-04).
+- **Conclusion**: accepted as **baseline v1** (development fold, clean). From now on new
+  experiments are compared against EXP-5 (clean) or its noisy counterpart exp6; milestone
+  claims need the leave-one-room-out folds (`exp5_great_hall`, `exp5_octagon`) as well.
+  Before reading more into the bias, add the per-subset/per-room metrics of TRAIN-08; making
+  prediction batched (TRAIN-07) would also save ~3 h per run.

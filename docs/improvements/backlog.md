@@ -422,6 +422,9 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Decision** (2026-11-07, maintainer): −45 dB for v1. `configs/v1_base.py::make_config` now
   defaults to `max_ruido_dB=-45`; the v0 configs keep their values. 125 Hz stays without real
   RIRs (open question: T20 there, or report it as synthetic-only).
+- **Measured** (2026-11-08, EXP-5 database): `band:lundeby_noise` discards per band at −45 dB:
+  125 Hz 11,376 (5.9 % of the band records) · 250 Hz 6,464 (3.4 %) · 500 Hz 48 · 1 kHz 68 ·
+  2 kHz 16 · 4 kHz 8 · 8 kHz 46 (18,026 in total).
 
 ---
 
@@ -444,6 +447,9 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Evidence** (baseline v0): in most runs the best epoch is between 450 and 500 out of 500
   → training did not converge and early stopping (patience 100) almost never kicked in.
 - **Proposal**: ReduceLROnPlateau or cosine decay, AdamW, revisit batch size and initial LR.
+- **Evidence** (2026-11-08, baseline v1 EXP-5): with the source-RIR validation split, early
+  stopping triggers in 6 of 7 bands (best epoch 109–388), but 2 kHz still peaks at 485/500.
+  Fitting costs ~10 s/epoch on CPU (TRAIN-06).
 
 ### TRAIN-05 — On-the-fly data generation
 - **Proposal**: `tf.data` / `torch.utils.data.Dataset` combining speech, RIR, noise and SNR
@@ -460,11 +466,20 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Problem**: predicts one sample at a time (very slow) and rounds to 2 decimals in the
   normalized space (error up to 0.005 × p95).
 - **Proposal**: `model.predict(X, batch_size=...)`; vectorized errors without rounding.
+- **Evidence** (2026-11-08, EXP-5): the per-sample loop (`code/model.py:213`) takes ~25 min
+  per band for ~17,500 test records (measured on 125 Hz), ~3 h of the 10 h 25 min of training
+  + evaluation, and writes one Keras progress bar per sample (`train.log` grows to 79 MB).
 
 ### TRAIN-08 — Metrics
 - **Proposal**: MAE, RMSE, bias, Pearson and Spearman in physical units; % within JND;
   breakdown by RIR type (real/synthetic/augmented) and by room. Reusable script
   (see `scripts/summarize_results.py`).
+- **Evidence** (2026-11-08, EXP-5): the clarity descriptors are biased low in every band
+  (C50 −0.5 to −1.8 dB, −3.2 dB at 8 kHz where the bias is 97 % of the MAE) and T30 is biased
+  high at 500 Hz (+0.35 s). The breakdown needed to explain it (held-out classroom real RIRs
+  vs. held-out synthetic RIRs) is impossible today: `save_exp_data` stores `X_test`, `y_test`
+  and predictions but no RIR/speech names or record type. Store them (e.g. the
+  `ReverbedAudio` and `type_data` columns of the test records) alongside the predictions.
 
 ---
 
@@ -484,6 +499,9 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   each (speech, variant) pair (49 of 105 ms). With 3 speech files the RIR went from 68.8 s to
   55.1 s; the saving grows with 30 files. Rough estimate for a full v1 database: ~2.5 h of
   CPU, i.e. ~20–30 min on 8 cores (to be confirmed by the first run).
+- **Measured** (2026-11-08, EXP-5, 8 cores): the full v1 clean database took **2 h 03 min**,
+  4–6× the estimate: ~1 h 15 min for the 468 real RIRs (augmented ones carry ~100 variants
+  each) and ~50 min for the 2900 synthetic RIRs.
 
 ### CODE-02 — Storage
 - **Problem**: pickled DataFrames holding Python lists; `read_dataset` reads the full
@@ -519,6 +537,10 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   configs share `configs/v1_base.py::make_config` (each experiment is three lines). Pending:
   hash of the remaining parameters (bands, fs, filter order), and splitting at read time so
   LORO folds can share one database.
+- **Evidence** (2026-11-08, EXP-5): the clean database name still encodes the noise
+  parameters (`..._snr_0_40_beta_1.0_2.0_clean_0.2_...` with `add_noise=False`), so clean
+  configs that differ only in unused noise settings would not share a cache. Harmless today;
+  drop the noise fields from the name when noise is off.
 
 ### CODE-06 — Inference CLI
 - **Proposal**: `python -m reverbnet.predict audio.wav` → 5 s windows with VAD over the whole

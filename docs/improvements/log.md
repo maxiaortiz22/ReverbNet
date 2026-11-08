@@ -147,3 +147,27 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   long targets (≥ 1.7 s) often overflow.
 - Full-path validation after the fixes: 45 RIRs, 4706 variants, 0 unexpected exceptions; 72 % of
   the TR variants are usable (details in BUG-09). Test suite: 113 passing tests.
+
+## 2026-11-08 — EXP-5: baseline v1 (clean, classroom held out)
+
+- Ran `configs/exp5.py` on branch `exp/exp5-baseline-v1` @ `dd30f73` (2026-11-07 19:18 →
+  2026-11-08 07:46), exit code 0, no unexpected exceptions. Full entry in
+  [experiments.md](experiments.md#exp-5--baseline-v1-clean-data-classroom-held-out-development-fold).
+- Database (pipeline v5): 1,331,112 records, 5.6 GB, **2 h 03 min** on 8 cores, 4–6× the
+  20–30 min estimate (CODE-01 evidence updated; the `experiments` skill now quotes the measured
+  time). Discards: 18,026 band records by the Lundeby criterion (almost all at 125/250 Hz,
+  DATA-10), 361 TR variants (303 overflow, 58 failed TR analysis; BUG-09) and 158
+  unrealizable DRR variants.
+- Training + evaluation of the 7 bands: **10 h 25 min**; ~3 h of it is the per-sample test
+  prediction (TRAIN-07 evidence).
+- **Decision**: EXP-5 is **baseline v1** (development fold, clean). New experiments are
+  compared against it (clean) or against exp6 (noisy); v0 numbers are kept only as historical
+  reference because the split, the Lundeby criterion and the clarity definitions changed.
+- Findings recorded as evidence on existing items:
+  - Systematic low bias of C50/C80/D50 in every band (−3.2 dB C50 at 8 kHz, 97 % of the MAE)
+    and high T30 bias at 500 Hz (+0.35 s); the results pickles store no RIR names, so the
+    held-out-room vs. synthetic breakdown that would explain it is not possible yet (TRAIN-08).
+  - Early stopping now triggers in 6 of 7 bands; 2 kHz still peaks at epoch 485/500 (TRAIN-04).
+  - The clean database name still encodes the unused noise parameters (CODE-05).
+- Open question for the maintainer: next run exp6 (noisy) or the clean LORO folds
+  (`exp5_great_hall`, `exp5_octagon`); each costs ~12.5 h with the current pipeline.
