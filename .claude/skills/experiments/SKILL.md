@@ -55,7 +55,11 @@ python run.py --config configs/expN.py
 ```
 
 - Run it in the background if it will take more than a couple of minutes, logging to
-  `results/expN/train.log`.
+  `results/expN/train.log`. A background task of a Claude Code session can die with the session
+  (EXP-6's first attempt did): launch multi-hour runs detached from it, e.g. with
+  `Invoke-CimMethod Win32_Process Create` on a `.cmd` launcher. In that launcher write the exit
+  code as `>file echo %ERRORLEVEL%`; in `echo %ERRORLEVEL%>file` the digit is read as a stream
+  handle.
 - `run.py` writes `cache/<db>/generation_summary.json` **last** (record counts and discards by
   reason). A database folder without it was interrupted: `run.py` refuses to use it; delete
   the folder (after confirming with the user) and run again.
@@ -63,8 +67,9 @@ python run.py --config configs/expN.py
   `experiments.md` (e.g. how many band records the Lundeby criterion removed per band).
 - Measured cost of one v1 database (EXP-5, 8 cores): **~2 h** (real augmented RIRs ~1 h 15 min,
   synthetic ~50 min). Training + evaluation of the 7 bands on CPU: **~10.5 h** (~10 s/epoch,
-  plus ~25 min per band of per-sample test prediction until TRAIN-07). Plan ~12.5 h per
-  experiment or LORO fold, and keep the machine awake.
+  plus ~25 min per band of per-sample test prediction until TRAIN-07). EXP-6 (noisy, after
+  TRAIN-07): 2 h 01 min + 11 h 31 min. Plan ~12–14 h per experiment or LORO fold; the number
+  of epochs dominates. Keep the machine awake.
 - For quick pipeline tests: a config with a small `sample_frac` and few epochs, with a test
   `exp_num` (e.g. 900+) that is deleted afterwards.
 
