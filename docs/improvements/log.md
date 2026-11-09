@@ -171,3 +171,22 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   - The clean database name still encodes the unused noise parameters (CODE-05).
 - Open question for the maintainer: next run exp6 (noisy) or the clean LORO folds
   (`exp5_great_hall`, `exp5_octagon`); each costs ~12.5 h with the current pipeline.
+
+## 2026-11-08 — TRAIN-07 / TRAIN-08: batched prediction, test metadata, EXP-5 breakdown
+
+- **Decision** (maintainer): fix TRAIN-07 and TRAIN-08 before running exp6 or the LORO folds.
+- TRAIN-07 done: one batched, unrounded `predict` per band (saves ~25 min per band and the
+  79 MB log). TRAIN-08 done: `code/metrics.py`, test metadata stored by `run.py`,
+  `summarize_results.py --by …`, and `scripts/recover_test_metadata.py` for older runs
+  (branch `feat/TRAIN-07-08-batched-prediction-metrics`). Smoke run of `run.py` (exp900, 1 band, 2 epochs; deleted afterwards) and
+  128 passing tests.
+- `run.py` now builds the generator through `generator_from_config`, shared with the recovery
+  script so both resolve the same cache.
+- Recovered and verified the EXP-5 test metadata (7/7 bands, exact match) and broke the
+  metrics down by subset (EXP-5 addendum in [experiments.md](experiments.md)):
+  - The headline clarity bias comes from DRR-augmented variants of 13 classroom RIRs that
+    make up 56 % of the test set → new item **DATA-11** (P1). Decision pending: how to define
+    the headline test metric (options in the backlog).
+  - Original real classroom RIRs are unbiased from 250 Hz to 4 kHz (C50 MAE 1.0–1.6 dB).
+  - 8 kHz is biased on real RIRs only → evidence added to DATA-08.
+- Next: decide DATA-11 before exp6 / LORO, since it changes what those runs report.

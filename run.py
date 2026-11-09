@@ -3,9 +3,10 @@ import os
 import argparse
 import pandas as pd
 from code import import_configs_objs
-from code import DataBaseGenerator
 from code import read_dataset
 from code import model, reshape_data, normalize_descriptors, prediction, descriptors_err, save_exp_data, create_early_stopping_callback
+from code.generate_database import generator_from_config
+from code.metrics import build_test_metadata
 from code.splits import validation_mask
 import concurrent.futures
 import gc
@@ -77,19 +78,8 @@ def main(**kwargs):
     config = import_configs_objs(config_path)
 
     # --- Instantiate database generator ---
-    # Ensure parameter names match the expected keys in ``config``.
-    database = DataBaseGenerator(
-        config['files_speech_train'], config['files_speech_test'], config['files_rirs'],
-        config['to_augmentate'], config['rirs_for_training'],
-        config['rirs_for_testing'], config['bands'], config['filter_type'], config['fs'],
-        config['max_ruido_dB'], config['order'], config['add_noise'], config['snr'],
-        config['tr_aug'], config['drr_aug'],
-        # Noise options (DATA-09). Defaults reproduce the legacy setup: always pink noise,
-        # no noise-free fraction. The project-wide seed makes the noise reproducible.
-        noise_beta=config.get('noise_beta', [1.0, 1.0]),
-        clean_fraction=config.get('clean_fraction', 0.0),
-        seed=config['seed'],
-    )
+    # Shared with scripts/recover_test_metadata.py, so both resolve the same cache.
+    database = generator_from_config(config)
 
     # ------------------------------------------------------------------
     # Dataset generation (multiprocessing with chunked on-disk caching)
@@ -223,18 +213,18 @@ def main(**kwargs):
         print(f"Best epoch: {best_epoch} with val_loss: {min(history.history['val_loss']):.6f}")
         print(f"Training finished at epoch: {len(history.history['loss'])}")
 
-        # Run model predictions.
-        predict = prediction(blind_estimation_model, X_test, y_test)
+        # Batched, unrounded predictions (TRAIN-07).
+        predict = prediction(blind_estimation_model, X_test, batch_size=config['batch_size'])
 
         # Compute descriptor errors.
         err_t30, err_c50, err_c80, err_d50 = descriptors_err(predict, y_test)
 
-        # Save experiment artifacts.
+        # Save experiment artifacts, with per-record test metadata (TRAIN-08).
         save_exp_data(
             config['exp_num'], band, blind_estimation_model, history, predict,
             err_t30, err_c50, err_c80, err_d50,
             T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95,
-            X_test, y_test
+            X_test, y_test, test_metadata=build_test_metadata(db_test)
         )
 
         # Delete large variables to free memory before next band iteration.

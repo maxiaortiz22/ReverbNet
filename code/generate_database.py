@@ -542,3 +542,35 @@ class DataBaseGenerator:
         final_db.to_pickle(db_file)
         logger.info("Database generated and saved at: %s", db_file)
         return final_db
+
+
+def generator_from_config(config: dict) -> DataBaseGenerator:
+    """
+    Build the database generator described by an experiment config.
+
+    Single place that maps config keys to :class:`DataBaseGenerator` arguments, shared by
+    ``run.py`` and the scripts that need the database name of a run (e.g.
+    ``scripts/recover_test_metadata.py``), so they can never disagree on the cache.
+
+    Parameters
+    ----------
+    config : dict
+        Namespace of an experiment config (``configs/*.py``).
+
+    Returns
+    -------
+    DataBaseGenerator
+        Generator whose ``db_name`` identifies the run's cache folder.
+    """
+    return DataBaseGenerator(
+        config['files_speech_train'], config['files_speech_test'], config['files_rirs'],
+        config['to_augmentate'], config['rirs_for_training'],
+        config['rirs_for_testing'], config['bands'], config['filter_type'], config['fs'],
+        config['max_ruido_dB'], config['order'], config['add_noise'], config['snr'],
+        config['tr_aug'], config['drr_aug'],
+        # Noise options (DATA-09). Defaults reproduce the legacy setup: always pink noise,
+        # no noise-free fraction. The project-wide seed makes the noise reproducible.
+        noise_beta=config.get('noise_beta', [1.0, 1.0]),
+        clean_fraction=config.get('clean_fraction', 0.0),
+        seed=config['seed'],
+    )

@@ -15,7 +15,6 @@ dependent code and existing checkpoints.
 """
 
 import numpy as np
-from progress.bar import IncrementalBar
 import os
 import pickle
 
@@ -188,67 +187,75 @@ def normalize_descriptors(y_train, y_val, y_test):
             T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95)
 
 
-def prediction(blind_estimation_model, X_test, y_test):
+def prediction(blind_estimation_model, X_test: np.ndarray, batch_size: int = 1024) -> np.ndarray:
     """
-    Generate per‑sample predictions for the test set with a progress bar.
+    Predict the whole test set in batches, without rounding (TRAIN-07).
+
+    The v0 version called ``predict`` once per sample (~25 min per band for ~17,500
+    records) and rounded the outputs to 2 decimals in the normalized space.
 
     Parameters
     ----------
     blind_estimation_model : tensorflow.keras.Model
-        Trained model instance.
-    X_test : ndarray
-        Test inputs of shape (n_samples, 200, 1).
-    y_test : ndarray
-        Test targets (unused except for length to drive the progress bar).
+        Trained model instance (anything with a Keras-like ``predict``).
+    X_test : ndarray, shape (n_samples, n_frames, 1)
+        Test inputs (TAE).
+    batch_size : int, default=1024
+        Batch size passed to ``predict``.
 
     Returns
     -------
-    list of ndarray
-        Rounded predictions (2 decimal places) per test sample.
-    """
-    prediction = []
-    bar = IncrementalBar('Predicting values', max=int(len(y_test)))
+    ndarray, shape (n_samples, 4)
+        Normalized predictions ``[T30, C50, C80, D50]``, unrounded.
 
-    for i in range(len(y_test)):
-        prediction.append(np.round(blind_estimation_model.predict(X_test[i,:,0].reshape(1,-1,1)), 2)[0])
-        bar.next()
-    bar.finish()
-    return prediction
+    Raises
+    ------
+    ValueError
+        If ``X_test`` is not 3-D or the model does not return one 4-vector per sample.
+    """
+    X_test = np.asarray(X_test)
+    if X_test.ndim != 3:
+        raise ValueError(f"`X_test` must have shape (n, n_frames, 1), got {X_test.shape}")
+    pred = np.asarray(blind_estimation_model.predict(X_test, batch_size=batch_size, verbose=0))
+    pred = pred.reshape(len(X_test), -1)
+    if pred.shape[1] != 4:
+        raise ValueError(f"Expected 4 outputs per sample, got shape {pred.shape}")
+    return pred
 
 
 def descriptors_err(prediction, y_test):
     """
-    Compute element‑wise prediction errors for each acoustic descriptor.
+    Element-wise prediction errors of each descriptor, in the normalized space.
 
     Parameters
     ----------
-    prediction : sequence
-        Model predictions (list/array of 4‑element vectors).
-    y_test : ndarray
-        Ground‑truth descriptor targets of shape (n_samples, 4, 1).
+    prediction : array_like, shape (n_samples, 4)
+        Model predictions (:func:`prediction`).
+    y_test : ndarray, shape (n_samples, 4, 1) or (n_samples, 4)
+        Normalized ground-truth targets.
 
     Returns
     -------
-    err_t30, err_c50, err_c80, err_d50 : list of float
-        Prediction minus ground‑truth error (rounded to 2 decimals) per sample.
-    """
-    err_t30, err_c50, err_c80, err_d50 = [], [], [], []
-    bar = IncrementalBar('Calculating descriptor errors', max=int(len(y_test)))
+    err_t30, err_c50, err_c80, err_d50 : ndarray, shape (n_samples,)
+        ``prediction - y_test`` per descriptor, unrounded (TRAIN-07).
 
-    for i in range(len(y_test)):
-        err_t30.append(np.round(prediction[i][0] - np.round(y_test[i,:,0].reshape(1,-1,1), 2).flatten()[0], 2))
-        err_c50.append(np.round(prediction[i][1] - np.round(y_test[i,:,0].reshape(1,-1,1), 2).flatten()[1], 2))
-        err_c80.append(np.round(prediction[i][2] - np.round(y_test[i,:,0].reshape(1,-1,1), 2).flatten()[2], 2))
-        err_d50.append(np.round(prediction[i][3] - np.round(y_test[i,:,0].reshape(1,-1,1), 2).flatten()[3], 2))
-        bar.next()
-    bar.finish()
-    return err_t30, err_c50, err_c80, err_d50
+    Raises
+    ------
+    ValueError
+        If the shapes do not match.
+    """
+    pred = np.asarray(prediction, dtype=float).reshape(-1, 4)
+    true = np.asarray(y_test, dtype=float).reshape(-1, 4)
+    if pred.shape != true.shape:
+        raise ValueError(f"`prediction` and `y_test` differ in shape: {pred.shape} vs {true.shape}")
+    err = pred - true
+    return err[:, 0], err[:, 1], err[:, 2], err[:, 3]
 
 
 def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
                   err_t30, err_c50, err_c80, err_d50,
                   T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95,
-                  X_test, y_test):
+                  X_test, y_test, test_metadata=None):
     """
     Persist experiment artifacts (weights, training history, predictions, errors).
 
@@ -275,6 +282,11 @@ def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
         Normalization scalars used during training.
     X_test, y_test : ndarray
         Held‑out test inputs/targets.
+    test_metadata : pandas.DataFrame, optional
+        One row per test record, in the order of ``X_test`` (TRAIN-08): at least the
+        columns of :func:`code.metrics.record_metadata` (recording, speaker, rir, room,
+        rir_type, augmentation), plus DRR/SNR columns when available. Stored under
+        ``'test_metadata'`` so metrics can be broken down by RIR type, room or speaker.
 
     Returns
     -------
@@ -308,6 +320,11 @@ def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
                    'D50_perc_95': D50_perc_95,
                    'X_test': X_test,
                    'y_test': y_test}
+    if test_metadata is not None:
+        if len(test_metadata) != len(y_test):
+            raise ValueError(f"`test_metadata` has {len(test_metadata)} rows "
+                             f"for {len(y_test)} test records")
+        results_dic['test_metadata'] = test_metadata.reset_index(drop=True)
 
     with open(f'results/exp{exp_num}/results_{band}.pickle', 'wb') as handle:
         pickle.dump(results_dic, handle, protocol=pickle.HIGHEST_PROTOCOL)

@@ -71,6 +71,10 @@ python run.py --config configs/expN.py
    ```bash
    python scripts/summarize_results.py --exp N
    ```
+   Always add the per-subset table (`--by rir_type`, and `--by room` for LORO folds): the
+   headline table mixes original real, augmented and synthetic RIRs (DATA-11). Runs saved
+   before TRAIN-08 need `python scripts/recover_test_metadata.py --config configs/expN.py`
+   first (it verifies the rebuilt test set against the stored one).
 2. A new entry **at the end** of `docs/improvements/experiments.md` using the template: date,
    branch and commit, config, database, changes vs. the reference, table, conclusion.
 3. If the experiment closes an item, update the board, backlog and log
