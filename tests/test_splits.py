@@ -241,3 +241,42 @@ def test_cache_name_depends_on_the_split(tmp_path, monkeypatch):
     fold_b = db_name(['classroom_00x00y.wav'], ['great_hall_x00y00.wav'])
     assert fold_a != fold_b
     assert fold_a == db_name(['great_hall_x00y00.wav'], ['classroom_00x00y.wav'])
+
+
+# --------------------------------------------------------------------------- #
+# Augmentation only on training RIRs (DATA-11)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('test_room', ROOMS)
+def test_v1_configs_augment_training_rirs_only(monkeypatch, test_room):
+    import configs.v1_base as v1_base
+
+    monkeypatch.setattr(v1_base, 'list_rir_files', lambda _: sorted(ALL_RIRS))
+    monkeypatch.setattr(v1_base, 'list_speech_files',
+                        lambda _: SPEECH + ['test/F4s1.wav', 'test/F4s2.wav'])
+    config = v1_base.make_config(exp_num=999, add_noise=False, test_rooms=(test_room,))
+
+    augmented = config['to_augmentate']
+    assert set(augmented) <= set(config['rirs_for_training'])
+    assert {rir_group(f) for f in augmented} == set(ROOMS) - {test_room}
+    # The training rooms keep exactly the selection they had when every room was augmented.
+    everything = select_rirs_to_augment(ALL_RIRS, per_room=15, seed=v1_base.SEED)
+    assert augmented == [f for f in everything if rir_group(f) != test_room]
+
+
+def test_generator_never_augments_test_rirs(tmp_path, monkeypatch):
+    from collections import Counter
+
+    from code.generate_database import DataBaseGenerator
+
+    monkeypatch.chdir(tmp_path)
+    train, test = ['great_hall_x00y00.wav'], ['classroom_00x00y.wav']
+    gen = DataBaseGenerator([], [], train + test, train + test, train, test, [1000],
+                            'octave band', 16000, -60, 4, False, [0, 40], [0.5, 1.1, 0.5],
+                            [0, 7, 6], seed=SEED)
+    assert gen._should_augment('great_hall_x00y00')
+    # Listed in to_augmentate, but a test RIR: its variants would end up in the test set.
+    assert not gen._should_augment('classroom_00x00y')
+    rir = np.zeros(8000)
+    rir[100] = 1.0
+    assert gen._augmented_variants('classroom_00x00y', rir, Counter()) == []

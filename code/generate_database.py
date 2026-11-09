@@ -37,7 +37,8 @@ _WARNED_SHORT_SPEECH: set[str] = set()
 #   4: random noise color, clean fraction and per-recording seeded noise (DATA-09).
 #   5: reproducible augmentation built once per RIR, exactly 5 DRR TR-variants per RIR,
 #      short speech zero-padded to 5 s, only expected failures discarded (BUG-05/06).
-DATA_PIPELINE_VERSION = 5
+#   6: only training RIRs are augmented; the test set holds original RIRs only (DATA-11).
+DATA_PIPELINE_VERSION = 6
 
 
 class DataBaseGenerator:
@@ -362,8 +363,16 @@ class DataBaseGenerator:
         return per_band
 
     def _should_augment(self, rir_name: str) -> bool:
-        """Whether ``rir_name`` (a file stem) is a real RIR selected for augmentation."""
+        """
+        Whether ``rir_name`` (a file stem) is a real **training** RIR selected for augmentation.
+
+        Augmentation is a training device (DATA-11): test RIRs are never augmented, even if a
+        config lists them in ``to_augmentate``. In EXP-5 the augmented variants of 13 held-out
+        RIRs were 56 % of the test records and dominated the headline metrics.
+        """
         if 'sintetica' in rir_name:
+            return False
+        if rir_name not in {Path(f).stem for f in self.rirs_for_training}:
             return False
         return rir_name in {Path(f).stem for f in self.to_augmentate}
 

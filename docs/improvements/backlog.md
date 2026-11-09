@@ -454,6 +454,16 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   RIRs); or (c) weight records so that each source RIR counts once.
 - **Acceptance**: `experiments.md` headline metrics are not dominated by any single subset,
   and the choice is recorded in `log.md`.
+- **Decision** (2026-11-08, maintainer): option (b), augmented variants stay out of the test set.
+- **Resolution** (2026-11-08, branch `fix/DATA-11-train-only-augmentation`): `configs/v1_base.py::make_config` keeps only
+  the training RIRs of `select_rirs_to_augment` (30 instead of 45 in each fold; the training
+  rooms keep exactly the same 15 RIRs, since the per-room selection is independent), and
+  `DataBaseGenerator._should_augment` never augments a test RIR even if a config lists it.
+  `DATA_PIPELINE_VERSION` → 6 (new cache name `..._files_2d9ce0ae14_dv6` for exp5).
+  `summarize_results.py --exclude augmented` evaluates older runs the same way. Because the
+  training set, validation split and p95 factors of exp5 are unchanged, EXP-5 restricted to
+  its original-RIR test records is the v1 baseline under the new definition (no retraining;
+  see the EXP-5 re-evaluation in `experiments.md`). Tests in `tests/test_splits.py`.
 
 ## TRAIN — Model and training
 

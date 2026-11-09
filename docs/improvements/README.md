@@ -55,7 +55,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | DATA-08 | Filter influence on descriptors (zero-phase / time-reversed filtering, 8 kHz band) | P2 | 4 | todo | |
 | DATA-09 | Revisit the SNR range/definition: broadband −5…20 dB leaves 4–8 kHz bands at −24…+6 dB | P1 | 3 | done | `fix/BUG-01-causal-convolution` |
 | DATA-10 | Lundeby noise criterion for v1: −60 dB keeps no real RIR at 125/250 Hz and ~60 % at 500 Hz–1 kHz | P1 | 3 | done | `fix/BUG-01-causal-convolution` |
-| DATA-11 | Test set dominated by DRR-augmented variants of a few held-out RIRs (56 % of records) | P1 | 3 | todo | |
+| DATA-11 | Test set dominated by DRR-augmented variants of a few held-out RIRs (56 % of records) | P1 | 3 | done | `fix/DATA-11-train-only-augmentation` |
 | TRAIN-01 | One multi-band model instead of 7 networks | P1 | 4 | todo | |
 | TRAIN-02 | Higher-capacity architecture with global pooling | P2 | 4 | todo | |
 | TRAIN-03 | Z-score normalization with train stats, Huber/NLL loss with uncertainty | P1 | 4 | todo | |
