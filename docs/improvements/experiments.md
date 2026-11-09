@@ -317,3 +317,104 @@ tables 15–23 of the thesis and in `notebooks/exp*.ipynb`. Once the inference s
 - **Conclusion**: this table replaces the EXP-5 headline table as **baseline v1 (clean,
   development fold)**. New runs (pipeline v6) produce this test definition directly; compare
   them against this entry, always together with the `--by rir_type` table.
+
+---
+
+### EXP-6 — Noisy baseline v1: classroom held out, pipeline v6
+- **Date**: 2026-11-08 19:34 → 2026-11-09 09:06 (UTC−3). A first attempt started at 10:31 died
+  with the Claude Code session at 11:11 (partial cache deleted, log in
+  `results/exp6/train_interrupted.log`); the run below was launched detached from the session.
+- **Branch / commit**: `exp/exp6-noisy-baseline-v1` @ `e187c6e` (clean tree).
+- **Command**: `run.py --config configs/exp6.py` through `results/exp6/launch_exp6.cmd`
+  (env `ReverbNet`; log in `results/exp6/train.log`, metadata in `results/exp6/run_info.txt`).
+- **Exit status**: not captured. The launcher wrote `echo %ERRORLEVEL%> exit_code.txt`, and in
+  `cmd` a digit right before `>` is a stream handle, so the file came out empty. Evidence of a
+  normal end: results and weights of 7/7 bands, no `Traceback` in the log, and the process ended
+  6 s after saving the last band, which is the last thing `run.py` does.
+- **Config**: `configs/exp6.py` → `make_config(exp_num=6, add_noise=True)`: as EXP-5 plus noise
+  (broadband SNR 0–40 dB, β ∈ [1, 2], 20 % of the recordings clean; DATA-09). Augmentation on
+  the 30 training RIRs only (DATA-11).
+- **Database**: `cache/data_base_-45_noise_True_traug_0.2_3.1_0.1_drraug_-6_19_1_snr_0_40_beta_1.0_2.0_clean_0.2_seed_2222_files_2d9ce0ae14_dv6` (data pipeline v6): 3368 RIRs → 1,246,944 band records in 25
+  partitions, 5.3 GB. Exactly 84,168 records fewer than EXP-5, which is the sum over the 7 bands
+  of the augmented test records of EXP-5.
+- **Discards** (`generation_summary.json`, EXP-5 → EXP-6): `band:lundeby_noise` 18,026 → 17,914,
+  `tr_variant:tr_augmentation_FloatingPointError` 303 → 208,
+  `tr_variant:tr_augmentation_ValueError` 58 → 0, `drr_variant:unrealizable` 158 → 156. Lundeby
+  discards per band (180,694 possible records per band): 125 Hz 11,360 · 250 Hz 6,464 · 1 kHz 60 ·
+  8 kHz 30 · none at 500 Hz, 2 kHz and 4 kHz.
+- **Records per band**: train and validation counts identical to EXP-5 in every band; test 4,424
+  (125 Hz), 5,000 (250 Hz), 5,464 (500 Hz and up).
+- **Wall-clock time** (8 cores, CPU only):
+  - Database generation: **2 h 01 min** (19:34 → 21:35).
+  - Training + evaluation of the 7 bands: **11 h 31 min** (21:35 → 09:06), 3269 epochs in total
+    (EXP-5: 2662). Per band (load + fit + predict): 125 Hz 74 min (500 epochs) · 250 Hz 66 (427) ·
+    500 Hz 74 (451) · 1 kHz 78 (391) · 2 kHz 122 (500) · 4 kHz 137 (500) · 8 kHz 141 (500).
+  - Total: **13 h 32 min**, above the ~10 h estimated before the run: batched prediction saved
+    its ~3 h, but this run trained 23 % more epochs and the last three bands ran at 14–17 s/epoch
+    against ~9–12 s/epoch for the first four (cause not investigated).
+- **Changes vs.**: EXP-5 re-evaluation (baseline v1, clean) — only the noise (DATA-09). Training
+  RIRs, augmentation, splits and architecture are the same.
+- **Results**:
+
+| Band [Hz] | N test | Best epoch / total | T30 ρ / MAE [s] | C50 ρ / MAE [dB] | C80 ρ / MAE [dB] | D50 ρ / MAE [%] |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | 4424 | 404 / 500 | 0.847 / 0.36 | 0.653 / 2.69 | 0.755 / 2.45 | 0.682 / 12.48 |
+| 250 | 5000 | 327 / 427 | 0.873 / 0.28 | 0.649 / 2.27 | 0.756 / 2.18 | 0.697 / 10.11 |
+| 500 | 5464 | 351 / 451 | 0.893 / 0.28 | 0.781 / 1.38 | 0.826 / 1.38 | 0.775 / 6.62 |
+| 1000 | 5464 | 291 / 391 | 0.895 / 0.25 | 0.849 / 1.20 | 0.904 / 1.16 | 0.866 / 5.70 |
+| 2000 | 5464 | 460 / 500 | 0.925 / 0.21 | 0.815 / 1.41 | 0.873 / 1.44 | 0.836 / 7.01 |
+| 4000 | 5464 | 455 / 500 | 0.929 / 0.20 | 0.903 / 1.23 | 0.916 / 1.28 | 0.895 / 5.95 |
+| 8000 | 5464 | 468 / 500 | 0.895 / 0.25 | 0.798 / 1.59 | 0.851 / 1.59 | 0.824 / 7.44 |
+
+  Per RIR type (MAE / bias / % within JND):
+
+| Band [Hz] | rir_type | N | T30 MAE / bias [s] / ≤JND | C50 MAE / bias [dB] / ≤JND | C80 MAE / bias [dB] / ≤JND | D50 MAE / bias [%] / ≤JND |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | synthetic | 4424 | 0.36 / +0.11 / 14 % | 2.69 / +0.79 / 25 % | 2.45 / +0.50 / 27 % | 12.48 / +6.14 / 25 % |
+| 250 | real | 576 | 0.27 / -0.15 / 23 % | 1.92 / +0.99 / 36 % | 1.85 / +1.31 / 36 % | 8.85 / +5.95 / 38 % |
+| 250 | synthetic | 4424 | 0.28 / -0.02 / 17 % | 2.31 / +1.10 / 30 % | 2.22 / +1.03 / 31 % | 10.28 / +5.35 / 32 % |
+| 500 | real | 1040 | 0.31 / +0.26 / 20 % | 1.31 / -0.32 / 44 % | 1.17 / -0.09 / 50 % | 6.63 / -0.39 / 44 % |
+| 500 | synthetic | 4424 | 0.27 / +0.17 / 22 % | 1.40 / +0.40 / 45 % | 1.43 / +0.11 / 46 % | 6.62 / +2.10 / 47 % |
+| 1000 | real | 1040 | 0.26 / +0.03 / 23 % | 1.25 / -0.61 / 45 % | 1.00 / -0.09 / 60 % | 5.72 / -1.28 / 53 % |
+| 1000 | synthetic | 4424 | 0.25 / +0.04 / 21 % | 1.19 / +0.39 / 56 % | 1.20 / +0.09 / 59 % | 5.70 / +2.18 / 55 % |
+| 2000 | real | 1040 | 0.19 / +0.04 / 30 % | 1.27 / +0.06 / 50 % | 1.16 / +0.22 / 51 % | 6.41 / +1.56 / 47 % |
+| 2000 | synthetic | 4424 | 0.21 / +0.09 / 22 % | 1.45 / +0.75 / 45 % | 1.50 / +0.25 / 47 % | 7.15 / +4.25 / 43 % |
+| 4000 | real | 1040 | 0.18 / +0.03 / 27 % | 1.21 / -0.42 / 45 % | 1.04 / +0.14 / 56 % | 5.83 / -0.87 / 49 % |
+| 4000 | synthetic | 4424 | 0.21 / +0.01 / 23 % | 1.24 / +0.51 / 60 % | 1.34 / +0.41 / 56 % | 5.97 / +2.89 / 54 % |
+| 8000 | real | 1040 | 0.23 / +0.15 / 19 % | 2.19 / -1.71 / 26 % | 1.74 / -0.94 / 33 % | 11.22 / -8.36 / 25 % |
+| 8000 | synthetic | 4424 | 0.26 / +0.04 / 20 % | 1.45 / +0.28 / 46 % | 1.55 / +0.03 / 49 % | 6.55 / +1.09 / 50 % |
+
+  Per broadband SNR of the test recording, all RIR types (T30 MAE [s] / C50 MAE [dB] / C50 bias
+  [dB]; about 1,090 records per bucket at 500 Hz and up):
+
+| Band [Hz] | clean | 0-10 | 10-20 | 20-30 | 30-40 |
+| --- | --- | --- | --- | --- | --- |
+| 125 | 0.32 / 2.56 / +0.81 | 0.43 / 3.18 / +1.48 | 0.37 / 2.63 / +0.61 | 0.33 / 2.51 / +0.60 | 0.32 / 2.56 / +0.48 |
+| 250 | 0.26 / 2.18 / +1.04 | 0.33 / 2.35 / +1.01 | 0.26 / 2.32 / +1.11 | 0.28 / 2.24 / +1.16 | 0.27 / 2.25 / +1.10 |
+| 500 | 0.25 / 1.33 / +0.33 | 0.35 / 1.52 / +0.06 | 0.27 / 1.34 / +0.16 | 0.26 / 1.31 / +0.32 | 0.25 / 1.41 / +0.46 |
+| 1000 | 0.24 / 1.18 / +0.14 | 0.28 / 1.27 / +0.26 | 0.25 / 1.24 / +0.29 | 0.24 / 1.11 / +0.14 | 0.24 / 1.22 / +0.16 |
+| 2000 | 0.17 / 1.30 / +0.59 | 0.29 / 1.67 / +0.63 | 0.22 / 1.42 / +0.57 | 0.19 / 1.35 / +0.69 | 0.18 / 1.33 / +0.61 |
+| 4000 | 0.18 / 1.15 / +0.16 | 0.25 / 1.47 / +0.69 | 0.22 / 1.23 / +0.29 | 0.18 / 1.13 / +0.24 | 0.18 / 1.19 / +0.29 |
+| 8000 | 0.21 / 1.48 / -0.34 | 0.33 / 1.94 / +0.30 | 0.26 / 1.59 / -0.14 | 0.24 / 1.50 / -0.18 | 0.22 / 1.45 / -0.13 |
+
+- **Comparison with baseline v1 (EXP-5 re-evaluation)**:
+  - **Validation loss is higher in every band** (ratio noisy/clean from 1.10 at 500 Hz to 2.25 at
+    4 kHz), as expected from a harder task.
+  - **Test metrics are mixed, not uniformly worse**. C50 MAE [dB], EXP-5 → EXP-6: 125 Hz 2.60 → 2.69 ·
+    250 Hz 1.86 → 2.27 · 500 Hz 1.53 → 1.38 · 1 kHz 1.62 → 1.20 · 2 kHz 1.40 → 1.41 · 4 kHz 1.13 →
+    1.23 · 8 kHz 1.16 → 1.59. T30 MAE [s] is equal or within 0.02 s except 500 Hz 0.40 → 0.28
+    (better) and 8 kHz 0.19 → 0.25 (worse). The two runs are single, unseeded trainings that stopped
+    at very different epochs (500 Hz: best epoch 178 vs. 351), so the gains at 500 Hz–1 kHz **must
+    not be read as noise helping** without repeating the runs (TRAIN-09).
+  - **Error depends weakly on SNR above 10 dB**. Across the clean, 10–20, 20–30 and 30–40 dB
+    buckets the C50 MAE of each band varies by at most ~0.15 dB. The 0–10 dB bucket is clearly
+    worse than the clean recordings (T30 MAE +17 to +71 %, C50 MAE +8 to +31 %).
+  - **Real classroom RIRs**: C50 MAE 1.2–1.3 dB from 500 Hz to 4 kHz (bias −0.6…+0.1 dB), 1.9 dB at
+    250 Hz. **8 kHz stays biased low on real RIRs** (C50 −1.71 dB, D50 −8.4 %) and not on synthetic
+    ones, as in the clean run, so that bias is not a noise effect (DATA-08).
+  - **Convergence**: 4 of 7 bands hit the 500-epoch limit with best epochs 404–468 (TRAIN-04).
+- **Comparison with v0** (exp3/exp4): not comparable; besides the changes listed in EXP-5, v0 mixed
+  noise after the filter bank (BUG-03) with a different SNR range and color.
+- **Conclusion**: accepted as **noisy baseline v1** (development fold). Differences against the
+  clean baseline should not be interpreted band by band until TRAIN-09 gives a measure of
+  run-to-run variation.

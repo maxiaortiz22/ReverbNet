@@ -207,3 +207,26 @@ Entries in chronological order, most recent **at the end**. Absolute dates
   the maintainer decides to delete it.
 - Next: exp6 (noisy) or the clean LORO folds, both with pipeline v6 (~10 h each now that
   TRAIN-07 removed ~3 h of per-sample prediction; to be measured).
+
+## 2026-11-09 — EXP-6: noisy baseline v1
+
+- Ran `configs/exp6.py` on branch `exp/exp6-noisy-baseline-v1` @ `e187c6e`. Database 2 h 01 min, training + evaluation
+  11 h 31 min. Full entry in [experiments.md](experiments.md). **Decision**: EXP-6 is the noisy
+  baseline v1 (development fold).
+- The first attempt (2026-11-08 10:31) died with the Claude Code session at 11:11, consistent with
+  a background task being a child of the session. The run was relaunched detached (WMI process
+  creation); the `experiments` skill now says to launch long runs that way.
+- The launcher lost the exit code (`echo %ERRORLEVEL%> file`: in `cmd` a digit before `>` is a
+  stream handle). Normal end inferred from 7/7 saved bands and no traceback.
+- New item **TRAIN-09**: `run.py` does not seed TensorFlow, so two runs cannot be compared below
+  their (unknown) run-to-run variation. Noted because EXP-6 beats EXP-5 in C50 MAE at 500 Hz–1 kHz.
+- Noise sensitivity: error is nearly flat above 10 dB of broadband SNR and clearly worse below.
+- **Corrections to earlier entries** (those entries are kept as written):
+  - EXP-5 entry and PR #8 description: the 125 Hz test set was described as essentially
+    synthetic-only. In the original EXP-5 table 73 % of it was augmented classroom records; it is
+    synthetic-only only after excluding them.
+  - TRAIN-07 resolution notes: per-sample prediction was only part of the 79 MB log. The epoch
+    progress bars of `fit` remain (~17 KB/epoch, 57 MB in EXP-6); the 2.7 KB of the smoke run came
+    from having only 2 epochs. `verbose=2` in `fit` would remove them.
+  - The ~10 h per run estimated on 2026-11-08 was too low: EXP-6 took 13 h 32 min.
+- Next: clean or noisy LORO folds, or TRAIN-09 first.

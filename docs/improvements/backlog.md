@@ -487,6 +487,8 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Evidence** (2026-11-08, baseline v1 EXP-5): with the source-RIR validation split, early
   stopping triggers in 6 of 7 bands (best epoch 109–388), but 2 kHz still peaks at 485/500.
   Fitting costs ~10 s/epoch on CPU (TRAIN-06).
+- **Evidence** (2026-11-09, EXP-6): with noise, 4 of 7 bands reach the 500-epoch limit with best
+  epochs 404–468, so the noisy models need more epochs or an LR schedule.
 
 ### TRAIN-05 — On-the-fly data generation
 - **Proposal**: `tf.data` / `torch.utils.data.Dataset` combining speech, RIR, noise and SNR
@@ -535,6 +537,18 @@ File paths refer to the code as it was during the initial review (2026-11-07).
     `test_metadata_<band>.pickle` next to the results (existing artifacts untouched). Done for
     EXP-5 (all 7 bands verified). The breakdown found DATA-11.
   - Tests: `tests/test_metrics.py`, `tests/test_prediction.py` (128 passing in total).
+
+### TRAIN-09 — Seeded training and run-to-run variation
+- **Files**: `run.py`.
+- **Problem**: no `tf.keras.utils.set_random_seed` call exists, so weight initialization,
+  shuffling and dropout differ on every run, and the size of that variation is unknown.
+- **Evidence** (2026-11-09): EXP-6 (noisy) has a lower C50 MAE than EXP-5 (clean) at 1 kHz (1.20
+  vs. 1.62 dB) and 500 Hz (1.38 vs. 1.53 dB) although its validation loss is higher in every
+  band; the two 500 Hz trainings stopped at best epochs 351 and 178. Without a variation
+  measure these differences cannot be attributed to the data.
+- **Proposal**: seed TF from the project `seed` through its own `RNG_STREAMS` entry per band,
+  and run ≥ 2 seeds of one fold to measure the variation.
+- **Acceptance**: `experiments.md` records the seed-to-seed spread per band and descriptor.
 
 ---
 

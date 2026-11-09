@@ -64,6 +64,7 @@ and what is done. It is maintained with the `improvement-tracking` skill
 | TRAIN-06 | GPU training (TF on native Windows has no GPU): WSL2 / PyTorch / Keras 3 | P1 | 2 | todo | |
 | TRAIN-07 | Batched prediction without rounding | P1 | 1 | done | `feat/TRAIN-07-08-batched-prediction-metrics` |
 | TRAIN-08 | Metrics in physical units, % within JND, per RIR type and per room | P1 | 3 | done | `feat/TRAIN-07-08-batched-prediction-metrics` |
+| TRAIN-09 | Training is not seeded: run-to-run variation unknown | P1 | 4 | todo | |
 | CODE-01 | Augment and compute descriptors once per RIR (currently repeated ~30×) | P1 | 2 | done | `fix/BUG-01-causal-convolution` |
 | CODE-02 | Efficient per-band storage format (npz/HDF5/parquet) | P1 | 2 | todo | |
 | CODE-03 | Decide the future of the C++ extension | P2 | 2 | todo | |
