@@ -549,6 +549,17 @@ File paths refer to the code as it was during the initial review (2026-11-07).
 - **Proposal**: seed TF from the project `seed` through its own `RNG_STREAMS` entry per band,
   and run ≥ 2 seeds of one fold to measure the variation.
 - **Acceptance**: `experiments.md` records the seed-to-seed spread per band and descriptor.
+- **Progress** (2026-11-09, branch `feat/TRAIN-09-seeded-training`): `RNG_STREAMS['training']` and
+  `random_streams.training_seed(seed, band, replica)` derive one TF seed per band, so a band does
+  not depend on which bands ran before it; `run.py` calls `model.seed_training` before building
+  each model and stores the value as `training_seed` in the results. `make_config(...,
+  train_replica=N)` repeats a training on the same database (the cache name does not change).
+- **Measured** (TF 2.16.1, CPU): on a probe with the real model, two processes with the same
+  seed gave identical weights with `set_random_seed` alone, and `enable_op_determinism` changed
+  neither the weights nor the time per epoch, so it is not used. Through `run.py` (1 kHz, 2 % of
+  the exp6 records, 3 epochs): two runs with replica 0 gave identical predictions and validation
+  losses; replica 1 gave different ones on the same test set.
+- **Pending**: the runs that measure the spread, which is the acceptance criterion.
 
 ---
 

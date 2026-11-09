@@ -7,6 +7,8 @@ from code import read_dataset
 from code import model, reshape_data, normalize_descriptors, prediction, descriptors_err, save_exp_data, create_early_stopping_callback
 from code.generate_database import generator_from_config
 from code.metrics import build_test_metadata
+from code.model import seed_training
+from code.random_streams import training_seed
 from code.splits import validation_mask
 import concurrent.futures
 import gc
@@ -189,6 +191,10 @@ def main(**kwargs):
         (y_train, y_val, y_test,
          T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95) = normalize_descriptors(y_train, y_val, y_test)
 
+        # Seed this band's training (TRAIN-09); `train_replica` repeats it on the same data.
+        band_seed = training_seed(config['seed'], band, config.get('train_replica', 0))
+        seed_training(band_seed)
+
         # Instantiate the model.
         blind_estimation_model = model(
             config['filters'], config['kernel_size'], config['activation'],
@@ -224,7 +230,7 @@ def main(**kwargs):
             config['exp_num'], band, blind_estimation_model, history, predict,
             err_t30, err_c50, err_c80, err_d50,
             T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95,
-            X_test, y_test, test_metadata=build_test_metadata(db_test)
+            X_test, y_test, test_metadata=build_test_metadata(db_test), training_seed=band_seed
         )
 
         # Delete large variables to free memory before next band iteration.

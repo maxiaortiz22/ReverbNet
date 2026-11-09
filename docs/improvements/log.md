@@ -230,3 +230,15 @@ Entries in chronological order, most recent **at the end**. Absolute dates
     from having only 2 epochs. `verbose=2` in `fit` would remove them.
   - The ~10 h per run estimated on 2026-11-08 was too low: EXP-6 took 13 h 32 min.
 - Next: clean or noisy LORO folds, or TRAIN-09 first.
+
+## 2026-11-09 — TRAIN-09: seeded training per band
+
+- **Decision** (maintainer): seed the training before running the LORO folds.
+- Implemented on branch `feat/TRAIN-09-seeded-training`: stream `training`, `training_seed(seed, band, replica)`,
+  `seed_training`, and the `train_replica` config key. **Decision**: one seed per band, so a band
+  does not depend on the ones trained before it, and a replica index instead of a second project
+  seed, so the database, splits and noise stay fixed when repeating a training.
+- `enable_op_determinism` is not used: `set_random_seed` alone already reproduced the weights
+  across processes on CPU. Verified end to end through `run.py` (same seed: identical predictions;
+  replica 1: different ones on the same test set). Test suite: 138 passing tests.
+- Pending for TRAIN-09: measure the run-to-run spread.

@@ -46,8 +46,8 @@ description: Rules for writing, training and evaluating ReverbNet models (1D CNN
 
 ## Training
 
-- Seeds: `tf.keras.utils.set_random_seed(seed)` at the start; document that full determinism
-  on CPU/GPU is not guaranteed.
+- Seeds: `seed_training(training_seed(seed, band, replica))` before building each band's model
+  (TRAIN-09). Reproducible on CPU as measured; determinism on other devices is not guaranteed.
 - Loss: MSE (baseline). Alternatives: Huber; Gaussian NLL with a (μ, log σ²) output for
   uncertainty (TRAIN-03). With several targets, mind their relative scale (weights).
 - Optimizer and LR: AdamW + `ReduceLROnPlateau` or cosine decay. In v0 the best epoch is almost

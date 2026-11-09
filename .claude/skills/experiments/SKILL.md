@@ -21,6 +21,9 @@ description: Workflow for running, recording and comparing ReverbNet experiments
 
 ## Config keys for noise and randomness
 
+- `train_replica` (`make_config`): index of a repeated training on the same database and splits,
+  to measure run-to-run variation (TRAIN-09). It is not a second seed and does not change the
+  cache. Training is seeded per band since TRAIN-09; earlier runs (EXP-5, EXP-6) were not.
 - `seed`: the **only** seed of the project. It drives the RIR train/test split in the config
   and every random process of data generation (noise today; augmentation once BUG-06 is done).
   Changing it changes both the split and the noise.

@@ -50,6 +50,24 @@ def create_early_stopping_callback(patience=100, monitor='val_loss', restore_bes
     return early_stopping
 
 
+def seed_training(seed: int) -> None:
+    """
+    Seed Python, NumPy and TensorFlow for one training run (TRAIN-09).
+
+    Covers weight initialization, batch shuffling and dropout. Two processes with the same
+    seed produced identical weights on CPU with this call alone (TF 2.16.1), so
+    ``enable_op_determinism`` is not used. Determinism on other devices is not guaranteed.
+
+    Parameters
+    ----------
+    seed : int
+        Value from :func:`code.random_streams.training_seed`.
+    """
+    import tensorflow as tf
+
+    tf.keras.utils.set_random_seed(seed)
+
+
 def model(filters: list = [32, 18, 8, 4],
           kernel_size: list = [10, 5, 5, 5],
           activation: list = ['relu','relu','relu','relu'],
@@ -255,7 +273,7 @@ def descriptors_err(prediction, y_test):
 def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
                   err_t30, err_c50, err_c80, err_d50,
                   T30_perc_95, C50_perc_95, C80_perc_95, D50_perc_95,
-                  X_test, y_test, test_metadata=None):
+                  X_test, y_test, test_metadata=None, training_seed=None):
     """
     Persist experiment artifacts (weights, training history, predictions, errors).
 
@@ -288,6 +306,9 @@ def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
         rir_type, augmentation), plus DRR/SNR columns when available. Stored under
         ``'test_metadata'`` so metrics can be broken down by RIR type, room or speaker.
 
+    training_seed : int, optional
+        TensorFlow seed of this run (TRAIN-09), stored under ``'training_seed'``.
+
     Returns
     -------
     None
@@ -319,7 +340,8 @@ def save_exp_data(exp_num, band, blind_estimation_model, history, prediction,
                    'C80_perc_95': C80_perc_95,
                    'D50_perc_95': D50_perc_95,
                    'X_test': X_test,
-                   'y_test': y_test}
+                   'y_test': y_test,
+                   'training_seed': training_seed}
     if test_metadata is not None:
         if len(test_metadata) != len(y_test):
             raise ValueError(f"`test_metadata` has {len(test_metadata)} rows "
