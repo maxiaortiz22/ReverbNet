@@ -489,6 +489,11 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   Fitting costs ~10 s/epoch on CPU (TRAIN-06).
 - **Evidence** (2026-11-09, EXP-6): with noise, 4 of 7 bands reach the 500-epoch limit with best
   epochs 404–468, so the noisy models need more epochs or an LR schedule.
+- **Evidence** (2026-11-10, EXP-6 replicas, TRAIN-09): over three runs of the same data, 11 of
+  21 band runs reach the 500-epoch limit and the best epoch of one band differs by up to 333
+  epochs between runs (4 kHz: 455, 483, 150).
+  Early stopping also stops too soon: at 4 kHz replica 2 stopped at epoch 250 with a validation
+  loss 27 % above the other runs. A schedule could reduce the run-to-run spread as well.
 
 ### TRAIN-05 — On-the-fly data generation
 - **Proposal**: `tf.data` / `torch.utils.data.Dataset` combining speech, RIR, noise and SNR
@@ -559,7 +564,14 @@ File paths refer to the code as it was during the initial review (2026-11-07).
   neither the weights nor the time per epoch, so it is not used. Through `run.py` (1 kHz, 2 % of
   the exp6 records, 3 epochs): two runs with replica 0 gave identical predictions and validation
   losses; replica 1 gave different ones on the same test set.
-- **Pending**: the runs that measure the spread, which is the acceptance criterion.
+- **Resolution** (2026-11-10): two seeded replicas of EXP-6 (`configs/exp6_r1.py`,
+  `configs/exp6_r2.py`) plus the unseeded EXP-6 give the spread per band and descriptor
+  (`experiments.md`, "EXP-6 replicas"). From 250 Hz to 8 kHz the MAE standard deviation is at
+  most ~0.2 JND for the clarity descriptors (C50 ≤ 0.11 dB) and ≤ 0.07 s for T30; 125 Hz is
+  unstable (C50 0.49 dB). Differences
+  between single runs below ~2.8 standard deviations are not interpretable. Of the EXP-5 vs.
+  EXP-6 differences, the losses with noise at 250 Hz and 8 kHz exceed the spread; the gains
+  at 500 Hz–1 kHz also do, but may come from an unlucky EXP-5 draw (not replicated).
 
 ---
 

@@ -99,8 +99,11 @@ python run.py --config configs/expN.py
 - Same split, same metrics, same bands. If the split changed (e.g. because of BUG-04), the
   numbers are not directly comparable: say so explicitly.
 - Report improvements with their magnitude per band and descriptor (not just "it improved"),
-  and whether the change is within seed-to-seed variation (run ≥ 2 seeds when the difference
-  is small).
+  and whether the change is within seed-to-seed variation. The measured spread (TRAIN-09,
+  `experiments.md` "EXP-6 replicas") says a difference between two single runs needs about
+  2.8 × the standard deviation of that band and descriptor: roughly 0.3 dB for C50 and 2 points
+  for D50 from 250 Hz up, and more than 1 dB at 125 Hz. Below that, add replicas
+  (`train_replica`) before concluding.
 - An improvement on the synthetic test set that does not show up on the field measurements is
   suspicious (`neural-network` skill, shortcuts section).
 
