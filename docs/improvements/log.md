@@ -230,3 +230,35 @@ Entries in chronological order, most recent **at the end**. Absolute dates
     from having only 2 epochs. `verbose=2` in `fit` would remove them.
   - The ~10 h per run estimated on 2026-11-08 was too low: EXP-6 took 13 h 32 min.
 - Next: clean or noisy LORO folds, or TRAIN-09 first.
+
+## 2026-11-09 — TRAIN-09: seeded training per band
+
+- **Decision** (maintainer): seed the training before running the LORO folds.
+- Implemented on branch `feat/TRAIN-09-seeded-training`: stream `training`, `training_seed(seed, band, replica)`,
+  `seed_training`, and the `train_replica` config key. **Decision**: one seed per band, so a band
+  does not depend on the ones trained before it, and a replica index instead of a second project
+  seed, so the database, splits and noise stay fixed when repeating a training.
+- `enable_op_determinism` is not used: `set_random_seed` alone already reproduced the weights
+  across processes on CPU. Verified end to end through `run.py` (same seed: identical predictions;
+  replica 1: different ones on the same test set). Test suite: 138 passing tests.
+- Pending for TRAIN-09: measure the run-to-run spread.
+
+## 2026-11-10 — TRAIN-09: run-to-run variation measured
+
+- Ran two seeded replicas of EXP-6 (`configs/exp6_r1.py`, `configs/exp6_r2.py`) on the EXP-6 cache,
+  on branch `feat/TRAIN-09-seeded-training` @ `7648189`: 9 h 51 min and 9 h 12 min of training,
+  exit code 0 for both (the launcher fix worked). Entry "EXP-6 replicas" in
+  [experiments.md](experiments.md). **TRAIN-09 done**.
+- From 250 Hz to 8 kHz the clarity MAE standard deviation over three runs is at most ~0.2 JND;
+  125 Hz is unstable (one run clearly worse; C50 sd 0.49 dB). The best validation loss does not
+  rank the runs on test, and the best epoch of one band differs by up to 333 epochs between runs
+  (evidence added to TRAIN-04).
+- A single-run difference needs about 2.8 standard deviations to be read (threshold now in the
+  `experiments` skill). **Proposed** (pending the maintainer): report the noisy baseline v1 as
+  the mean of the three runs.
+- EXP-5 vs. EXP-6 reread against the spread: noise is worse at 250 Hz and 8 kHz beyond the spread;
+  the gains at 500 Hz–1 kHz also exceed it but may be an unlucky EXP-5 draw (EXP-5 has one run).
+  The 8 kHz bias on real RIRs is reproducible across runs (DATA-08).
+- Observed, not investigated: time per epoch grows from ~9 to ~15 s along each run (band and process
+  age are confounded).
+- Next (maintainer to decide): LORO folds, clean replicas of EXP-5, or TRAIN-04 first.

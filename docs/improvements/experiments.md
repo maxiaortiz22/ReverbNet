@@ -418,3 +418,130 @@ tables 15–23 of the thesis and in `notebooks/exp*.ipynb`. Once the inference s
 - **Conclusion**: accepted as **noisy baseline v1** (development fold). Differences against the
   clean baseline should not be interpreted band by band until TRAIN-09 gives a measure of
   run-to-run variation.
+
+### EXP-6 replicas — run-to-run variation of the noisy baseline v1 (TRAIN-09)
+- **Date**: 2026-11-09 10:34 → 2026-11-10 05:38 (UTC−3), both replicas in sequence.
+- **Branch / commit**: `feat/TRAIN-09-seeded-training` @ `7648189` (clean tree).
+- **Command**: `run.py --config configs/exp6_r1.py`, then `configs/exp6_r2.py`, through
+  `results/exp6_r1/launch_replicas.cmd`, launched detached (logs in `results/exp6_rN/train.log`,
+  metadata in `results/exp6_rN/run_info.txt`).
+- **Exit status**: 0 for both (`results/exp6_rN/exit_code.txt`); 7/7 bands saved, no traceback.
+- **Config**: `make_config(exp_num='6_rN', add_noise=True, train_replica=N)` with N = 1, 2:
+  identical to EXP-6 except the training seed. Training is seeded per band
+  (`training_seed(2222, band, N)`, stored as `training_seed` in each results pickle); EXP-6 itself
+  was not seeded, so it is a third, independent draw.
+- **Database**: the EXP-6 cache (`..._files_2d9ce0ae14_dv6`), reused; same train, validation and
+  test records in every band.
+- **Wall-clock time** (training + evaluation, 8 cores, CPU only): replica 1 **9 h 51 min**
+  (3,021 epochs), replica 2 **9 h 12 min** (2,832 epochs); EXP-6 took 11 h 31 min (3,269 epochs).
+  The time per epoch grows along the run in all three: ~9–11 s/epoch for 125 Hz–1 kHz and
+  13–16 s/epoch for 2–8 kHz. Bands always run in the same order inside one process, so band and
+  process age cannot be told apart here (not investigated).
+- **Results** per replica (ρ = Spearman):
+
+  Replica 1:
+
+| Band [Hz] | Best epoch / total | Best val loss | T30 ρ / MAE [s] | C50 ρ / MAE [dB] | C80 ρ / MAE [dB] | D50 ρ / MAE [%] |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | 487 / 500 | 0.0258 | 0.832 / 0.36 | 0.675 / 2.77 | 0.762 / 2.56 | 0.718 / 12.26 |
+| 250 | 408 / 500 | 0.0154 | 0.889 / 0.27 | 0.673 / 2.22 | 0.782 / 2.15 | 0.721 / 10.36 |
+| 500 | 194 / 294 | 0.0099 | 0.909 / 0.24 | 0.802 / 1.33 | 0.837 / 1.42 | 0.794 / 6.44 |
+| 1000 | 449 / 500 | 0.0071 | 0.913 / 0.27 | 0.834 / 1.39 | 0.892 / 1.31 | 0.827 / 6.56 |
+| 2000 | 319 / 419 | 0.0087 | 0.921 / 0.23 | 0.831 / 1.49 | 0.860 / 1.54 | 0.811 / 7.53 |
+| 4000 | 483 / 500 | 0.0072 | 0.931 / 0.20 | 0.909 / 1.13 | 0.935 / 0.99 | 0.902 / 5.23 |
+| 8000 | 208 / 308 | 0.0081 | 0.899 / 0.26 | 0.797 / 1.59 | 0.865 / 1.64 | 0.815 / 7.64 |
+
+  Replica 2:
+
+| Band [Hz] | Best epoch / total | Best val loss | T30 ρ / MAE [s] | C50 ρ / MAE [dB] | C80 ρ / MAE [dB] | D50 ρ / MAE [%] |
+| --- | --- | --- | --- | --- | --- | --- |
+| 125 | 477 / 500 | 0.0264 | 0.773 / 0.44 | 0.483 / 3.58 | 0.584 / 3.36 | 0.517 / 15.07 |
+| 250 | 175 / 275 | 0.0149 | 0.810 / 0.40 | 0.625 / 2.44 | 0.724 / 2.54 | 0.649 / 11.26 |
+| 500 | 380 / 480 | 0.0096 | 0.885 / 0.30 | 0.774 / 1.39 | 0.836 / 1.37 | 0.780 / 6.46 |
+| 1000 | 453 / 500 | 0.0073 | 0.911 / 0.28 | 0.847 / 1.30 | 0.914 / 1.16 | 0.865 / 5.89 |
+| 2000 | 227 / 327 | 0.0094 | 0.929 / 0.20 | 0.832 / 1.31 | 0.895 / 1.39 | 0.834 / 6.63 |
+| 4000 | 150 / 250 | 0.0092 | 0.930 / 0.23 | 0.907 / 1.28 | 0.936 / 1.23 | 0.904 / 6.50 |
+| 8000 | 438 / 500 | 0.0071 | 0.897 / 0.32 | 0.788 / 1.79 | 0.851 / 1.83 | 0.815 / 8.74 |
+
+- **Spread over the three runs** (EXP-6, replica 1, replica 2): mean ± sample standard deviation
+  [range], followed by the single EXP-5 re-evaluation run (clean, `--exclude augmented`) after the `·`.
+
+  MAE:
+
+| Band [Hz] | T30 [s] | C50 [dB] | C80 [dB] | D50 [%] |
+| --- | --- | --- | --- | --- |
+| 125 | 0.39 ± 0.05 [0.09] · 0.36 | 3.01 ± 0.49 [0.89] · 2.60 | 2.79 ± 0.49 [0.90] · 2.43 | 13.27 ± 1.56 [2.80] · 10.88 |
+| 250 | 0.32 ± 0.07 [0.13] · 0.30 | 2.31 ± 0.11 [0.22] · 1.86 | 2.29 ± 0.22 [0.39] · 1.71 | 10.58 ± 0.60 [1.14] · 8.52 |
+| 500 | 0.27 ± 0.03 [0.05] · 0.40 | 1.37 ± 0.03 [0.05] · 1.53 | 1.39 ± 0.03 [0.05] · 1.35 | 6.51 ± 0.10 [0.18] · 7.17 |
+| 1000 | 0.26 ± 0.01 [0.03] · 0.24 | 1.30 ± 0.09 [0.19] · 1.62 | 1.21 ± 0.08 [0.15] · 1.50 | 6.05 ± 0.45 [0.85] · 7.54 |
+| 2000 | 0.21 ± 0.02 [0.04] · 0.21 | 1.41 ± 0.09 [0.17] · 1.40 | 1.46 ± 0.08 [0.15] · 1.41 | 7.06 ± 0.45 [0.89] · 6.63 |
+| 4000 | 0.21 ± 0.02 [0.03] · 0.20 | 1.21 ± 0.08 [0.15] · 1.13 | 1.16 ± 0.16 [0.29] · 1.06 | 5.89 ± 0.63 [1.27] · 5.47 |
+| 8000 | 0.28 ± 0.04 [0.07] · 0.19 | 1.66 ± 0.11 [0.20] · 1.16 | 1.69 ± 0.13 [0.24] · 1.21 | 7.94 ± 0.70 [1.30] · 5.69 |
+
+  Spearman ρ:
+
+| Band [Hz] | T30  | C50  | C80  | D50  |
+| --- | --- | --- | --- | --- |
+| 125 | 0.818 ± 0.039 [0.074] · 0.836 | 0.604 ± 0.105 [0.192] · 0.610 | 0.700 ± 0.101 [0.178] · 0.725 | 0.639 ± 0.107 [0.201] · 0.656 |
+| 250 | 0.857 ± 0.042 [0.079] · 0.874 | 0.649 ± 0.024 [0.048] · 0.703 | 0.754 ± 0.029 [0.057] · 0.804 | 0.689 ± 0.036 [0.071] · 0.737 |
+| 500 | 0.896 ± 0.012 [0.024] · 0.884 | 0.786 ± 0.015 [0.028] · 0.755 | 0.833 ± 0.006 [0.011] · 0.843 | 0.783 ± 0.010 [0.019] · 0.769 |
+| 1000 | 0.906 ± 0.010 [0.018] · 0.919 | 0.844 ± 0.008 [0.015] · 0.809 | 0.903 ± 0.011 [0.022] · 0.854 | 0.853 ± 0.022 [0.039] · 0.812 |
+| 2000 | 0.925 ± 0.004 [0.008] · 0.943 | 0.826 ± 0.010 [0.017] · 0.866 | 0.876 ± 0.018 [0.035] · 0.880 | 0.827 ± 0.014 [0.025] · 0.851 |
+| 4000 | 0.930 ± 0.001 [0.003] · 0.938 | 0.906 ± 0.003 [0.007] · 0.924 | 0.929 ± 0.011 [0.019] · 0.945 | 0.900 ± 0.005 [0.010] · 0.915 |
+| 8000 | 0.897 ± 0.002 [0.004] · 0.962 | 0.794 ± 0.006 [0.010] · 0.940 | 0.856 ± 0.008 [0.015] · 0.948 | 0.818 ± 0.005 [0.010] · 0.941 |
+
+  Fraction of records within the JND:
+
+| Band [Hz] | T30  | C50  | C80  | D50  |
+| --- | --- | --- | --- | --- |
+| 125 | 0.13 ± 0.02 [0.03] · 0.14 | 0.22 ± 0.04 [0.08] · 0.26 | 0.24 ± 0.04 [0.08] · 0.28 | 0.23 ± 0.04 [0.07] · 0.29 |
+| 250 | 0.16 ± 0.03 [0.05] · 0.18 | 0.30 ± 0.01 [0.03] · 0.36 | 0.31 ± 0.01 [0.02] · 0.39 | 0.32 ± 0.01 [0.02] · 0.38 |
+| 500 | 0.22 ± 0.01 [0.02] · 0.14 | 0.46 ± 0.01 [0.02] · 0.40 | 0.47 ± 0.01 [0.03] · 0.46 | 0.47 ± 0.00 [0.01] · 0.41 |
+| 1000 | 0.20 ± 0.02 [0.04] · 0.24 | 0.50 ± 0.04 [0.07] · 0.44 | 0.56 ± 0.05 [0.08] · 0.46 | 0.53 ± 0.03 [0.05] · 0.42 |
+| 2000 | 0.23 ± 0.02 [0.04] · 0.30 | 0.44 ± 0.02 [0.04] · 0.41 | 0.46 ± 0.03 [0.06] · 0.46 | 0.43 ± 0.02 [0.04] · 0.43 |
+| 4000 | 0.25 ± 0.01 [0.03] · 0.25 | 0.57 ± 0.04 [0.08] · 0.57 | 0.60 ± 0.05 [0.09] · 0.61 | 0.53 ± 0.06 [0.12] · 0.55 |
+| 8000 | 0.19 ± 0.03 [0.05] · 0.24 | 0.40 ± 0.03 [0.06] · 0.57 | 0.42 ± 0.04 [0.07] · 0.56 | 0.42 ± 0.04 [0.07] · 0.59 |
+
+- **Size of the run-to-run variation**:
+  - From 250 Hz to 8 kHz the standard deviation of the MAE is 0.01–0.07 s for T30, 0.03–0.11 dB
+    for C50, 0.03–0.22 dB for C80 and 0.10–0.70 points for D50; for the clarity descriptors that
+    is at most about 0.2 of a JND. The Spearman ρ standard deviation is ≤ 0.04 (about 0.01 at
+    4–8 kHz).
+  - **125 Hz is unstable**: replica 2 is clearly worse (C50 MAE 3.58 vs. 2.69 and 2.77 dB, ρ 0.48
+    vs. 0.65 and 0.68), giving a standard deviation of 0.49 dB for C50/C80 and 1.6 points for D50.
+    Its test set is synthetic-only.
+  - **Validation loss does not rank the runs on test**: at 125 Hz the three best validation
+    losses are within 5 % (0.0252–0.0264) while the test C50 MAE differs by 33 %; at 8 kHz
+    replica 2 has the lowest validation loss (0.0071 vs. 0.0079–0.0081) and the highest test MAE.
+  - **Best epoch is not stable**: within one band it differs by up to 333 epochs between runs
+    (4 kHz: 455, 483, 150); 11 of the 21 band runs reached the 500-epoch limit. At 4 kHz replica 2 stopped at epoch 250 (best 150) with a
+    validation loss 27 % higher than the other two runs (TRAIN-04).
+  - Bias of the real classroom RIRs keeps its sign across runs at 250 Hz (C50 +0.88…+0.99 dB),
+    500 Hz–1 kHz (C50 −0.32…−0.86 dB) and **8 kHz (C50 −1.37…−1.88 dB, D50 −7.3…−9.8 %)**; at
+    2–4 kHz its sign or size changes between runs (2 kHz C50 +0.13…−0.26 dB, 4 kHz D50
+    −2.7…+1.3 points).
+- **Threshold for comparisons**: the difference between two single runs has a standard deviation
+  of about √2 × the values above, so differences below ~2.8 × the standard deviation of a row
+  are not interpretable. Outside 125 Hz that is up to 0.2 s (T30), 0.3 dB (C50), 0.6 dB (C80)
+  and 2 points (D50) in the least stable band; 500 Hz is the tightest (C50 0.08 dB, D50 0.3
+  points). At 125 Hz it is about 1.4 dB for C50/C80. With three runs each standard deviation is
+  itself a rough estimate (two degrees of freedom), so these thresholds are indicative.
+- **EXP-5 (clean) vs. EXP-6 (noisy) revisited**. EXP-5 is a single unseeded draw, so its own
+  spread (not measured) adds to the comparison; differences of more than ~2.3 standard deviations
+  of the noisy runs are taken as real:
+  - **Noise makes things worse** at **250 Hz** (C50 MAE 2.31 ± 0.11 vs. 1.86 dB, C80 2.29 ± 0.22
+    vs. 1.71 dB, D50 10.6 ± 0.6 vs. 8.5 points) and at **8 kHz**: ρ of every descriptor (T30
+    0.897 ± 0.002 vs. 0.962, C50 0.794 ± 0.006 vs. 0.940) and clarity MAE (C50 1.66 ± 0.11 vs.
+    1.16 dB); the T30 MAE gap (0.28 ± 0.04 vs. 0.19 s) is at the edge of the spread. At 2–4 kHz the
+    ρ of T30 and C50 is slightly lower with noise (by 0.01–0.04) with MAE within the spread.
+  - **Noise looks better** at **500 Hz** (T30 0.27 ± 0.03 vs. 0.40 s, C50 1.37 ± 0.03 vs. 1.53 dB,
+    D50 6.5 ± 0.1 vs. 7.2 points) and **1 kHz** (C50 1.30 ± 0.09 vs. 1.62 dB, C80 1.21 ± 0.08 vs.
+    1.50 dB, D50 6.1 ± 0.5 vs. 7.5 points). Those gaps are beyond the noisy spread. At 500 Hz,
+    EXP-5's T30 MAE (0.40 s) is out of line with its neighbouring bands (0.30 and 0.24 s), which
+    suggests an unlucky EXP-5 draw; at 1 kHz there is no such hint. Settling it needs clean
+    replicas.
+  - **No difference** at 125 Hz (within the spread), nor in MAE at 2 and 4 kHz.
+- **Conclusion**: TRAIN-09 acceptance met. Proposed (pending the maintainer): report the noisy
+  baseline v1 as **the mean of the three runs** (table above), with single-run comparisons
+  against it clearing the threshold above. 125 Hz needs several runs before any conclusion. The
+  8 kHz bias on real RIRs is reproducible (DATA-08).

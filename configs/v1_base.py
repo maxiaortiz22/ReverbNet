@@ -34,7 +34,7 @@ DEV_TEST_ROOMS = ('classroom',)
 TEST_SPEAKERS = ('F4', 'M4', 'M9')
 
 
-def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-45):
+def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-45, train_replica=0):
     """
     Build the full configuration dictionary of a v1 experiment.
 
@@ -48,6 +48,9 @@ def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-45)
         Real rooms held out for testing (one per leave-one-room-out fold).
     max_ruido_dB : float, default=-45
         Lundeby noise acceptance criterion for the RIR descriptors (DATA-10).
+    train_replica : int, default=0
+        Index of a repeated training on the same database and splits, to measure run-to-run
+        variation (TRAIN-09). It does not take part in the cache name.
     """
     seed = SEED
 
@@ -99,6 +102,9 @@ def make_config(exp_num, add_noise, test_rooms=DEV_TEST_ROOMS, max_ruido_dB=-45)
         # Reading the generated database.
         sample_frac=1.0,
         random_state=seed,
+
+        # Repeated training on the same data (TRAIN-09).
+        train_replica=train_replica,
 
         # Model (same architecture as the thesis, so v1 isolates the data fixes).
         filters=[32, 18, 8, 4],
